@@ -10,7 +10,7 @@
 
 ---
 
-## The finding
+## Results
 
 **Across 1,325 source files, 24% of the findings this reviewer would have posted were
 wrong — and for two rules, 100% of them were.**
@@ -112,23 +112,6 @@ A review bot does not lint asserts in a test suite, so test files are excluded b
 and the honest number is 24%. The 96% is not reported anywhere except here, as the
 mistake it was.
 
-## Problems hit while building this
-
-**`open('x').read()` was flagged 118 times.** Technically the handle is not explicitly
-closed; in practice CPython refcounting closes it immediately and the idiom is
-everywhere. A rule can be *correct* and still be noise, which is a different failure from
-being wrong.
-
-**`assert-in-source` fires 340 times in source files and retracts 0%.** By the numbers it
-is this tool's most reliable rule. It is also the least useful one, because 340 correct
-low-severity findings is not a review. Precision alone does not make a rule worth having,
-and the README says so rather than letting the table imply otherwise.
-
-**Verifying inside the hunk defeated the whole idea.** An early version passed only the
-changed lines to the verifiers, so the `raise` below a bare `except` and the SQLAlchemy
-import above a `== None` were both invisible and nothing was ever retracted. Proposals
-are scoped to the diff; verification never is.
-
 ## What I wrote vs what I installed
 
 **Installed: nothing.** `dependencies = []`. `ast` proposes, `subprocess` reads
@@ -138,7 +121,7 @@ the Remix front end needs npm.
 No model is involved. A model would write better explanations and would also confirm
 findings it had not checked, which is the failure this project is built to avoid.
 
-## What it does NOT do
+## Scope
 
 - **Seven rules.** This is not a linter and does not want to be. The contribution is the
   verification stage, which any rule set could be dropped into.

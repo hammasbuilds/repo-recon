@@ -10,7 +10,7 @@
 
 ---
 
-## The finding
+## Results
 
 **The documented fix for a deprecation warning can break your program, and the diff will
 not show it.**
@@ -121,22 +121,6 @@ Nested generics need more than one pass - `Dict[str, List[Optional[int]]]` produ
 overlapping edits, so the innermost is applied first and the scan repeats until stable.
 `--write` runs to a fixed point.
 
-## Problems hit while building this
-
-**The first corpus scan looked like a bug and was not.** A grep for
-`from typing import.*List` matched dozens of CVAT files, and the scanner found nothing in
-them. The files import the names and never subscript them, so zero was correct. Checking
-that before writing it up avoided reporting a tooling failure as a finding.
-
-**`ast.unparse` was the obvious implementation and the wrong one.** It produces correct
-code and destroys formatting, which makes every codemod diff unreviewable. Text-slice
-edits located by AST positions cost an offset table and keep the diff honest.
-
-**Overlapping edits corrupted the source.** `Dict[str, List[int]]` yields an edit for the
-outer subscript and one for the inner, and applying both to the same text produced
-garbage. Edits are now sorted by span, the narrowest wins, and the wider one is reported
-as skipped for the next pass.
-
 ## What I wrote vs what I installed
 
 **Installed: nothing.** `dependencies = []`. `ast` locates, `difflib` renders the dry-run
@@ -144,7 +128,7 @@ diff, `http.server` serves the API. `ast-grep` was the planned tool and was not 
 and would not have given the mechanical/behavioural split, which is the part that
 matters. Only the Vue front end needs npm.
 
-## What it does NOT do
+## Scope
 
 - **Six rules.** This is not `pyupgrade`, which has dozens. The contribution is the
   refusal, not the coverage.

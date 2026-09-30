@@ -10,7 +10,7 @@
 
 ---
 
-## The finding
+## Results
 
 **A plain `ast` walk binds 99% of a repository's internal calls to their definitions
 (median across 29 real repositories, 519 modules, 88,166 lines). No embeddings, no model,
@@ -112,40 +112,6 @@ denominator was.**
 Both numbers are reported. `resolution_rate` is every call site; `repo_resolution_rate` is
 the honest one.
 
-## Problems hit while building this
-
-**A naive file walk mapped the wrong repository.** The first run on `mcp-lab` found 398
-modules. `mcp-lab` has 52. The other 346 were a checkout of the `requests` library sitting
-in `projects/04_swebench_coding_agent/workdirs/`, pulled down by that project's SWE-bench
-harness. Skipping directories by name is not enough - the general fix is that any directory
-below the root carrying its own `pyproject.toml` or `setup.py` is a *different project*, and
-is excluded and reported rather than silently merged.
-
-**String methods looked like calls to repo functions.** `"".join(parts)` parses as an
-attribute access on a constant. The receiver has no static name, and the first version
-returned the bare attribute - so `join`, `strip` and `to_numpy` appeared in the
-"unresolved repo call" list as though the repository defined functions by those names. They
-are now marked `<expr>.join` and classified as out of scope. This one fix moved
-`machine-learning` from 44% to 97%.
-
-**A relative import inside `__init__.py` was resolved one level too high.** `urdu-nlp-toolkit`
-resolved **24%** of its internal calls while comparable repositories hit 98-100%. The cause:
-`module_name_for` strips `__init__`, so a package's `__init__.py` *is* its package - but the
-relative-import resolver then dropped another level, sending `from .normalize import ...`
-to a top-level `normalize` module that does not exist. Every call through the package facade
-went unbound. One-line fix, **24% to 100%**, and the repositories that use package facades
-moved with it: `context-bench` 61% to 100%, `bounded-agent-runtime` 83% to 96%.
-
-**Closure-local helpers were reported as entry points.** `chunk_text.flush` in `rag-forge`
-is called by its own parent, but resolution only looked at module scope, so it appeared to
-be dead public API. Enclosing function scopes are now searched innermost-first, which is
-also what Python does.
-
-**tree-sitter was installed, then removed.** It was the obvious choice and it was wrong for
-this job. For Python, `ast` carries real scope nesting, so a method's qualified name is
-known exactly rather than inferred. tree-sitter would matter for a multi-language version;
-it did nothing here except add two dependencies.
-
 ## What I wrote vs what I installed
 
 **Installed: nothing.** `dependencies = []`. The parser, the call resolver, the PageRank
@@ -156,7 +122,7 @@ This is not purism. tree-sitter was tried first and beaten by `ast` on the actua
 an embedding index was never built because similarity search cannot answer the structural
 questions this tool exists for.
 
-## What it does NOT do
+## Scope
 
 - **Python only.** No JavaScript, Go or Rust. The `ast` module is the reason it works and
   the reason it does not generalise.

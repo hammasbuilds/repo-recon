@@ -10,7 +10,7 @@
 
 ---
 
-## The finding
+## Results
 
 **The single largest commit across 28 repositories changed 47,743 lines in 5 files. The
 third largest changed 5,442 lines in 693 files. Ranked by lines, the first is nine times
@@ -119,28 +119,6 @@ A 400-line commit is unremarkable where the median is 739 lines and alarming whe
 outlier check on `mcp-lab` fires at 14,780 lines rather than at some number chosen in
 advance.
 
-## Problems hit while building this
-
-**The risk model ranked an 8-line typo fix third-riskiest in `mcp-lab`, above a 693-file
-change.** The `untested` factor was the fraction of changed files that were source, with
-no reference to how much source had changed, so any single-file source commit without a
-test scored the maximum. Scaling it by the log volume of the source change fixed the
-ranking; the 693-file commit now leads and the data dump has dropped out of the top five.
-
-**A test caught my own sloppy reasoning rather than a bug.** `test_volume_is_log_scaled`
-asserted diminishing returns per decade. A log scale does not do that - it gives *equal*
-steps per decade by construction, and I was comparing one decade against three. The
-property worth asserting is compression against linear plus a ceiling, which is what the
-test now checks.
-
-**`README.md` and `.gitignore` each counted as a "top-level area".** Splitting a path on
-`/` and taking the first element makes every root-level file its own directory, so a
-docs-only commit looked as broad as a refactor. Root-level files now group as `(root)`.
-
-**Merge commits are excluded.** Their `--numstat` is relative to a single parent and
-double-counts work already attributed to the commits being merged, which inflated churn
-in every repository that had one.
-
 ## What I wrote vs what I installed
 
 **Installed: nothing.** `dependencies = []`.
@@ -150,7 +128,7 @@ considered and skipped: `git log --numstat` with a custom format is one subproce
 and a parser, against a dependency that wraps the same command. The web view is served by
 `http.server` from the standard library.
 
-## What it does NOT do
+## Scope
 
 - **Does not read commit message conventions.** It was built expecting Conventional
   Commits and the repositories it was measured on use prose subjects, so nothing depends
