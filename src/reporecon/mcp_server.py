@@ -338,9 +338,13 @@ TOOLS: list[dict[str, Any]] = [
         "the number behind it, so a verdict can be argued with. Needs a git repository.",
         {
             "path": _path_property("the git repository"),
-            "since": {
-                "type": "string",
-                "description": "Only consider commits after this revision or date.",
+            "last": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2000,
+                "description": "Assess only the most recent N commits - the release "
+                "candidate. Omitted, the whole read history is assessed, which is an "
+                "audit rather than a release decision.",
             },
             "scan": {
                 "type": "integer",
@@ -508,9 +512,22 @@ def _python_files(target: Path) -> tuple[list[Path], bool]:
     if target.is_file():
         return [target], False
     skip = {".git", ".venv", "venv", "node_modules", "__pycache__", ".tox", ".mypy_cache"}
+    # `rglob` follows directory symlinks and Windows junctions, so a link inside the
+    # tree reaches files outside it. With REPO_RECON_ROOT set, a junction under the root
+    # pointing anywhere readable was walked and its contents returned — the confinement
+    # held for the path it was given and not for the paths it then found. Every file is
+    # re-checked against the boundary after resolution.
+    confine = _root()
+    boundary = confine if confine is not None else target.resolve()
     found: list[Path] = []
     for path in sorted(target.rglob("*.py")):
         if any(part in skip for part in path.parts):
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue  # a broken link
+        if not (resolved == boundary or resolved.is_relative_to(boundary)):
             continue
         found.append(path)
         if len(found) >= FILE_LIMIT:
@@ -652,14 +669,27 @@ class ReconServer:
             from .reviewbot.review import added_lines
 
             per_file = added_lines(diff)
+            if not per_file:
+                raise ToolError(
+                    "that diff names no files; pass a unified diff, or omit it to review "
+                    "the whole file"
+                )
             # Match on the suffix: a diff names paths relative to the repository root
             # and the tool is given an absolute one.
+            wanted = str(path).replace("\\", "/")
             for name, lines in per_file.items():
-                if str(path).replace("\\", "/").endswith(name.lstrip("ab/")):
+                candidate = name.removeprefix("a/").removeprefix("b/")
+                if wanted.endswith("/" + candidate) or wanted == candidate:
                     changed = lines
                     break
             if changed is None:
-                changed = set().union(*per_file.values()) if per_file else set()
+                # The diff touched other files and not this one, so this file has no
+                # added lines to review. The previous version unioned every other
+                # file's line numbers and applied them here, which reported findings on
+                # lines the change never touched - a finding about code the author did
+                # not write in this change is exactly the noise the verify step exists
+                # to remove.
+                changed = set()
 
         file_review = review_source(str(path), _read(path), changed)
         findings = [
@@ -682,12 +712,17 @@ class ReconServer:
     def release_readiness(self, arguments: dict) -> dict:
         root = _resolve(arguments.get("path"), want="dir")
         scan = _int(arguments, "scan", 200, 1, 2000)
-        since = _string(arguments, "since")
+        # `evaluate(since=...)` is a COUNT of the most recent commits, not a revision.
+        # The tool used to advertise "revision or date" and pass the string straight
+        # into a list slice, so every value of it raised TypeError - a parameter that
+        # could not be used at all, behind a description that said what it did not do.
+        last = arguments.get("last")
+        last = None if last is None else _int(arguments, "last", 200, 1, 2000)
         try:
             history = read_history(root, limit=scan)
         except NotAGitRepository as exc:
             raise ToolError(str(exc)) from None
-        result = evaluate(history, since=since)
+        result = evaluate(history, since=last)
         return {
             "repo": result.repo,
             "verdict": "block" if result.blocked else ("warn" if result.warnings else "pass"),

@@ -31,6 +31,7 @@ from reporecon.mcp_server import (
     PROTOCOL_VERSIONS,
     TOOLS,
     ReconServer,
+    ToolError,
     serve,
 )
 
@@ -255,7 +256,7 @@ def test_nothing_is_written_while_the_tools_run(server: ReconServer, repo: Path)
 
 
 def test_an_unknown_rule_name_is_refused_with_the_list(server: ReconServer, repo: Path):
-    with pytest.raises(Exception) as caught:
+    with pytest.raises(ToolError) as caught:
         server.check_modernisation({"path": str(repo), "rules": ["no-such-rule"]})
     message = str(caught.value)
     assert "no-such-rule" in message
@@ -335,20 +336,20 @@ def test_the_root_environment_variable_confines_every_path(
     outside = tmp_path.parent
     monkeypatch.setenv("REPO_RECON_ROOT", str(repo))
     assert server.map_repo({"path": str(inside)})["modules"] >= 2
-    with pytest.raises(Exception) as caught:
+    with pytest.raises(ToolError) as caught:
         server.map_repo({"path": str(outside)})
     assert "REPO_RECON_ROOT" in str(caught.value)
 
 
 def test_a_bad_integer_argument_says_the_range(server: ReconServer, repo: Path):
-    with pytest.raises(Exception) as caught:
+    with pytest.raises(ToolError) as caught:
         server.map_repo({"path": str(repo), "top": 0})
     assert "between 1 and 100" in str(caught.value)
 
 
 def test_git_tools_refuse_a_directory_that_is_not_a_repository(server: ReconServer, repo: Path):
     for name in ("release_readiness", "riskiest_commits"):
-        with pytest.raises(Exception) as caught:
+        with pytest.raises(ToolError) as caught:
             getattr(server, name)({"path": str(repo)})
         assert "git" in str(caught.value).lower(), name
 
@@ -432,3 +433,79 @@ def test_check_prints_what_it_exposes_without_reading_stdin():
     assert payload["server"] == "repo-recon"
     assert payload["read_only"] is True
     assert len(payload["tools"]) == 6
+
+
+# ---- found by an independent review of this repository -------------------------------
+
+
+def test_release_readiness_accepts_the_commit_count_it_advertises(server: ReconServer):
+    """`last` was called `since` and documented as "a revision or date".
+
+    The library's parameter is a COUNT of the most recent commits, and the string
+    went straight into a list slice, so every value raised TypeError. A parameter
+    that cannot be used at all, behind a description saying what it did not do.
+    """
+    here = Path(__file__).resolve().parent.parent
+    if not (here / ".git").exists():
+        pytest.skip("no git history here")
+    whole = server.release_readiness({"path": str(here)})
+    recent = server.release_readiness({"path": str(here), "last": 1})
+    assert recent["commits_considered"] == 1
+    assert whole["commits_considered"] >= recent["commits_considered"]
+    for bad in ("HEAD~2", "2026-10-01", 0, 99999):
+        with pytest.raises(ToolError):
+            server.release_readiness({"path": str(here), "last": bad})
+
+
+def test_a_link_inside_the_root_does_not_reach_outside_it(
+    server: ReconServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The confinement held for the path it was given, not for the paths it found.
+
+    `rglob` follows directory symlinks and Windows junctions, so a link under
+    REPO_RECON_ROOT pulled in files the root was meant to exclude — and `map_repo`
+    reported one of them as a module of the repository.
+    """
+    confined = tmp_path / "confined"
+    (confined / "inside").mkdir(parents=True)
+    (confined / "inside" / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    outside = tmp_path / "secret"
+    outside.mkdir()
+    (outside / "private.py").write_text('PASSWORD = "hunter2"\n', encoding="utf-8")
+    try:
+        (confined / "leak").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this platform or account cannot create a directory link")
+
+    monkeypatch.setenv("REPO_RECON_ROOT", str(confined))
+    # Named directly, it was always refused. It is the walk that leaked.
+    with pytest.raises(ToolError):
+        server.map_repo({"path": str(confined / "leak")})
+
+    mapped = server.map_repo({"path": str(confined)})
+    modules = {card["module"] for card in mapped["core_modules"]}
+    assert not any("private" in m for m in modules), modules
+    scanned = server.check_modernisation({"path": str(confined)})
+    assert scanned["files_scanned"] == 1
+
+
+def test_a_diff_for_another_file_reports_nothing_about_this_one(server: ReconServer, repo: Path):
+    """It used to union every other file's added line numbers and apply them here.
+
+    So a change to one file reported findings on untouched lines of another — a
+    finding about code the author did not write in this change, which is exactly
+    the noise the verify step exists to remove.
+    """
+    path = repo / "src" / "demo" / "old.py"
+    whole = server.review_diff({"path": str(path)})
+    assert whole["confirmed"] >= 1  # there is something to find
+
+    elsewhere = "--- a/somewhere/else.py\n+++ b/somewhere/else.py\n@@ -1,0 +20,1 @@\n+x = 1\n"
+    assert server.review_diff({"path": str(path), "diff": elsewhere})["confirmed"] == 0
+
+
+def test_a_diff_that_names_no_file_is_refused_rather_than_ignored(server: ReconServer, repo: Path):
+    path = repo / "src" / "demo" / "old.py"
+    with pytest.raises(ToolError) as caught:
+        server.review_diff({"path": str(path), "diff": "hello world"})
+    assert "names no files" in str(caught.value)

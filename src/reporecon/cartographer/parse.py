@@ -151,12 +151,23 @@ def iter_python_files(root: Path) -> tuple[list[Path], list[Path]]:
     rather than silently shrinking the map.
     """
     nested = find_nested_projects(root)
+    root = root.resolve()
     out: list[Path] = []
     for p in root.rglob("*.py"):
         if any(part in SKIP_DIRS for part in p.parts):
             continue
         if any(p.is_relative_to(d) for d in nested):
             continue
+        # `rglob` follows directory symlinks and Windows junctions, so a link inside
+        # the tree pulls files from outside it into the map - which, behind the MCP
+        # server's REPO_RECON_ROOT confinement, read a file the root was meant to
+        # exclude and reported it as a module of this repository. A file is part of
+        # this repo only if it is still under the root once resolved.
+        try:
+            if not p.resolve().is_relative_to(root):
+                continue
+        except OSError:
+            continue  # a broken link
         out.append(p)
     return sorted(out), nested
 

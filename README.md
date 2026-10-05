@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.6%** bind to a
+number means anything. Of the call sites in this repository, **27.0%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **89.0%** do.
+method on a third-party object — **87.6%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -101,9 +101,9 @@ returned, and the tool description says which is which.
 ```
 map_repo - what is in here
 --------------------------
-30 modules, 376 symbols, 6,213 lines
-call graph: 502 of 564 in-scope calls bound to a definition here (89.0%)
-  the same number over EVERY call site, builtins included: 27.6% - which measures nothing
+30 modules, 380 symbols, 6,336 lines
+call graph: 504 of 575 in-scope calls bound to a definition here (87.6%)
+  the same number over EVERY call site, builtins included: 27.0% - which measures nothing
 core modules by PageRank over the call graph:
   reporecon.cartographer.parse
   reporecon.captain.history
@@ -112,9 +112,9 @@ core modules by PageRank over the call graph:
   reporecon.mcp_server
 entry points - called by nothing in this repository:
   reporecon.mcp_server.ReconServer.check_modernisation
+  reporecon.mcp_server.ReconServer.review_diff
   reporecon.mcp_server.ReconServer.trace_impact
   reporecon.mcp_server.ReconServer.riskiest_commits
-  tests.cartographer.test_graph.graph
 
 trace_impact - what breaks if this changes
 ------------------------------------------
@@ -134,21 +134,21 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 4 commits
-  pass  source changes without tests: 0 of 1 source-changing commits changed no test file
-  warn  riskiest commit: 57.0 - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
-  pass  areas touched: 4 top-level areas: (root), docs, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 1210 lines (20x the 60-line median)
+verdict: warn over 5 commits
+  pass  source changes without tests: 0 of 2 source-changing commits changed no test file
+  warn  riskiest commit: 56.0 - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+  pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
+  warn  commits far above this repo's median: 2 commit(s) over 2100 lines (20x the 105-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 60 lines across 4 files
-   57.0  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 12.0
-   31.9  3f506268  Reword project notes as implementation and r
-         files 13.4, volume 6.8, deletion 6.8
-   20.6  99516120  Read the checkout folder from REPOS_ROOT and
-         files 11.5, spread 5.0, volume 4.1
+a normal commit here is 105 lines across 4 files
+   56.0  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 11.0
+   55.0  f21541b7  Four readers for an unfamiliar codebase, beh
+         files 25.0, spread 20.0, volume 10.0
+   30.3  3f506268  Reword project notes as implementation and r
+         files 12.5, deletion 6.8, volume 6.0
 ```
 
 ## What it will not do
