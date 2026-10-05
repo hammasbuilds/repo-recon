@@ -480,6 +480,9 @@ def _link_dir(link: Path, target: Path) -> bool:
         link.symlink_to(target, target_is_directory=True)
         return True
     except (OSError, NotImplementedError):
+        # Deliberate: the symlink failing is the signal to try a junction, and the
+        # reason it failed does not change what to do next. Found by this repository's
+        # own reviewer, which was right to ask.
         pass
     if os.name != "nt":
         return False
