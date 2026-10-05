@@ -182,8 +182,9 @@ can read, and four servers would be four listings of one idea.
 ## Tests
 
 ```bash
-pip install -e ".[dev]"
-pytest -q
+uv sync --all-groups   # no runtime dependencies; the dev group is pytest,
+                       # ruff and jsonschema
+uv run pytest -q
 ```
 
 The four tools' own suites, carried over unchanged apart from their import paths, plus
