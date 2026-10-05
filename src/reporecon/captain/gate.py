@@ -11,6 +11,7 @@ alarming in one whose median is 20; a fixed threshold is wrong in both.
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass, field
 
 from .history import Commit, History
@@ -60,6 +61,10 @@ class GateResult:
         return "GO WITH WARNINGS" if self.warnings else "GO"
 
 
+#: Severity order, so two bands can be combined by taking the worse of them.
+_RANK = {PASS: 0, WARN: 1, BLOCK: 2}
+
+
 def _band(value: float, warn_at: float, block_at: float) -> str:
     if value >= block_at:
         return BLOCK
@@ -75,6 +80,8 @@ def evaluate(
     untested_block: float = 0.67,
     risk_warn: float = 45.0,
     risk_block: float = 65.0,
+    stands_out_warn: float = 1.5,
+    stands_out_block: float = 2.5,
 ) -> GateResult:
     """Assess the commits that would ship in this release.
 
@@ -115,15 +122,31 @@ def evaluate(
             Check("source changes without tests", PASS, "no source changes", 0.0, untested_warn)
         )
 
-    # 2. The single riskiest commit.
+    # 2. The single riskiest commit, judged against this release rather than against a
+    # number. The score is deliberately repo-relative - `_log_scale` returns 0.5 at the
+    # median, so in a homogeneous history volume and files carry no information at all
+    # and every commit scores the same. Comparing that to a fixed 45 is the mistake this
+    # module's own first paragraph warns about: ten identical one-line commits and ten
+    # identical 20,000-line commits differed only by `spread`, and the verdict followed
+    # the constant, not the risk.
+    #
+    # What a release decision wants is whether one commit stands out from the rest of
+    # the release. The absolute band is kept as a floor, so a release where everything
+    # is alarming is not passed for being uniformly alarming.
     top_commit, top_score = scored[0]
+    typical = statistics.median(score for _, score in scored)
+    ratio = top_score / typical if typical else 1.0
+    standout = _band(ratio, stands_out_warn, stands_out_block)
+    absolute = _band(top_score, risk_warn, risk_block)
+    verdict = standout if _RANK[standout] >= _RANK[absolute] else absolute
     result.checks.append(
         Check(
             "riskiest commit",
-            _band(top_score, risk_warn, risk_block),
-            f"{top_score} - {top_commit.sha[:8]} {top_commit.subject[:60]}",
-            top_score,
-            risk_warn,
+            verdict,
+            f"{top_score} against a median of {typical:.1f} for this release "
+            f"({ratio:.1f}x) - {top_commit.sha[:8]} {top_commit.subject[:60]}",
+            round(ratio, 2),
+            stands_out_warn,
         )
     )
 
@@ -140,20 +163,27 @@ def evaluate(
     )
 
     # 4. Outliers relative to this repo's own habits.
+    # The threshold is one such commit, not zero. Both branches reported threshold 0,
+    # so the passing case read "observed 0, threshold 0" - which under `_band`'s `>=`
+    # is a failure, and contradicted the schema's own statement that the status is the
+    # observed value compared with the threshold.
     big = [c for c in commits if c.churn > baseline.median_churn * 20]
-    if big:
-        result.checks.append(
-            Check(
-                "commits far above this repo's median",
-                WARN,
-                f"{len(big)} commit(s) over {baseline.median_churn * 20:.0f} lines "
-                f"(20x the {baseline.median_churn:.0f}-line median)",
-                float(len(big)),
-                0,
-            )
+    limit = baseline.median_churn * 20
+    result.checks.append(
+        Check(
+            "commits far above this repo's median",
+            WARN if big else PASS,
+            (
+                f"{len(big)} commit(s) over {limit:.0f} lines "
+                f"(20x the {baseline.median_churn:.0f}-line median)"
+                if big
+                else f"none over {limit:.0f} lines (20x the "
+                f"{baseline.median_churn:.0f}-line median)"
+            ),
+            float(len(big)),
+            1,
         )
-    else:
-        result.checks.append(Check("commits far above this repo's median", PASS, "none", 0, 0))
+    )
 
     return result
 
