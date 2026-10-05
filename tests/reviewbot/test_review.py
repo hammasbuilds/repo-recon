@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from reviewbot.checks import propose
-from reviewbot.review import added_lines, render, review_diff, review_source
-from reviewbot.verify import FileContext, verify
+from reporecon.reviewbot.checks import propose
+from reporecon.reviewbot.review import added_lines, render, review_diff, review_source
+from reporecon.reviewbot.verify import FileContext, verify
 
 
 def src(text: str) -> str:
@@ -234,7 +234,7 @@ def test_retraction_rate_is_reported():
         use(kept)
     """)
     result = review_source("app.py", code)
-    from reviewbot.review import Review
+    from reporecon.reviewbot.review import Review
 
     review_all = Review(files=[result])
     assert review_all.proposed == 2
@@ -243,14 +243,14 @@ def test_retraction_rate_is_reported():
 
 
 def test_render_names_the_retraction_rate():
-    from reviewbot.review import Review
+    from reporecon.reviewbot.review import Review
 
     text = render(Review(files=[review_source("app.py", "fh = open('x')\nuse(fh)\n")]))
     assert "retracted" in text
 
 
 def test_an_empty_review_does_not_divide_by_zero():
-    from reviewbot.review import Review
+    from reporecon.reviewbot.review import Review
 
     assert Review().retraction_rate == 0.0
 

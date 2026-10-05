@@ -56,14 +56,16 @@ def _span(starts: list[int], edit: Edit) -> tuple[int, int]:
     )
 
 
-def _drop_overlaps(edits: list[Edit], starts: list[int]) -> tuple[list[Edit], list[tuple[Edit, str]]]:
+def _drop_overlaps(
+    edits: list[Edit], starts: list[int]
+) -> tuple[list[Edit], list[tuple[Edit, str]]]:
     """Keep non-overlapping edits, preferring the innermost.
 
     `Dict[str, List[int]]` yields an edit for the whole subscript and one for
     the inner `List[int]`. Applying both would corrupt the text, so one pass
     applies the inner edit and a second pass picks up the outer one.
     """
-    ordered = sorted(edits, key=lambda e: (_span(starts, e)[1] - _span(starts, e)[0]))
+    ordered = sorted(edits, key=lambda e: _span(starts, e)[1] - _span(starts, e)[0])
     kept: list[Edit] = []
     skipped: list[tuple[Edit, str]] = []
     taken: list[tuple[int, int]] = []
@@ -99,8 +101,10 @@ class _StripAnnotations(ast.NodeTransformer):
             # A bare `x: int` declares nothing executable.
             return ast.Pass()
         return ast.Assign(
-            targets=[node.target], value=node.value,
-            lineno=node.lineno, col_offset=node.col_offset,
+            targets=[node.target],
+            value=node.value,
+            lineno=node.lineno,
+            col_offset=node.col_offset,
         )
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from captain.history import (
+from reporecon.captain.history import (
     Commit,
     FileChange,
     NotAGitRepository,
@@ -75,11 +75,17 @@ def test_source_excludes_tests_and_docs():
 
 def test_root_level_files_group_into_one_area():
     """Without grouping, README.md and .gitignore each looked like an 'area'."""
-    c = Commit(sha="x", author="a", when=None, subject="s", files=[
-        FileChange("README.md", 1, 0),
-        FileChange(".gitignore", 1, 0),
-        FileChange("src/a.py", 1, 0),
-    ])
+    c = Commit(
+        sha="x",
+        author="a",
+        when=None,
+        subject="s",
+        files=[
+            FileChange("README.md", 1, 0),
+            FileChange(".gitignore", 1, 0),
+            FileChange("src/a.py", 1, 0),
+        ],
+    )
     assert c.areas == {"(root)", "src"}
     assert c.spread == 2
 

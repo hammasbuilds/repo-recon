@@ -8,13 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from cartographer.graph import (
+from reporecon.cartographer.graph import (
     build_graph,
     entry_points,
     most_called,
     pagerank,
 )
-from cartographer.parse import parse_repo
+from reporecon.cartographer.parse import parse_repo
 
 
 def write(root: Path, rel: str, source: str) -> None:
@@ -26,11 +26,18 @@ def write(root: Path, rel: str, source: str) -> None:
 @pytest.fixture
 def graph(tmp_path: Path):
     write(tmp_path, "pyproject.toml", "[project]\nname='demo'\n")
-    write(tmp_path, "src/demo/util.py", """
+    write(
+        tmp_path,
+        "src/demo/util.py",
+        """
         def helper(x):
             return x + 1
-    """)
-    write(tmp_path, "src/demo/core.py", """
+    """,
+    )
+    write(
+        tmp_path,
+        "src/demo/core.py",
+        """
         from demo.util import helper
 
         class Engine:
@@ -42,13 +49,18 @@ def graph(tmp_path: Path):
 
         def entry():
             return Engine().run()
-    """)
-    write(tmp_path, "src/demo/cli.py", """
+    """,
+    )
+    write(
+        tmp_path,
+        "src/demo/cli.py",
+        """
         from demo.core import entry
 
         def main():
             print(entry())
-    """)
+    """,
+    )
     return build_graph(parse_repo(tmp_path))
 
 
@@ -99,9 +111,7 @@ def test_in_scope_is_resolved_plus_missed(graph):
 
 def test_every_unresolved_call_is_classified(graph):
     res = graph.resolution
-    assert sum(res.unresolved.values()) == sum(res.out_of_scope.values()) + sum(
-        res.missed.values()
-    )
+    assert sum(res.unresolved.values()) == sum(res.out_of_scope.values()) + sum(res.missed.values())
 
 
 # -- ranking --------------------------------------------------------------
@@ -141,12 +151,16 @@ def test_call_through_a_package_reexport_resolves(tmp_path: Path):
     """
     write(tmp_path, "src/pkg/__init__.py", "from .normalise import clean")
     write(tmp_path, "src/pkg/normalise.py", "def clean(s):\n    return s")
-    write(tmp_path, "src/pkg/app.py", """
+    write(
+        tmp_path,
+        "src/pkg/app.py",
+        """
         from pkg import clean
 
         def run(s):
             return clean(s)
-    """)
+    """,
+    )
     graph = build_graph(parse_repo(tmp_path))
     callers = graph.callers("pkg.normalise.clean")
     assert [c.caller for c in callers] == ["pkg.app.run"]

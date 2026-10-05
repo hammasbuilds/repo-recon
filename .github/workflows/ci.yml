@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release-readiness and risk tools read git history; a shallow clone
+          # gives them one commit and makes their tests meaningless.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install pytest ruff
+      - run: ruff check src tests
+      - run: ruff format --check src tests
+      - run: pip install -e .
+      - run: pytest -q
+      # the installed entry points, as an MCP client would start them
+      - run: repo-recon-mcp --check
+      - run: repo-recon --check
+      # and the four command lines the tools kept
+      - run: repo-cartographer --help
+      - run: migration-pilot --help
+      - run: release-captain --help
+      - run: review-bot --help
+      # the server maps its own repository: a smoke test with a real answer
+      - run: repo-cartographer map . --json | head -40

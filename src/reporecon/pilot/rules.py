@@ -65,8 +65,13 @@ class Scan:
 # -- typing generics ------------------------------------------------------
 
 _GENERIC_ALIASES = {
-    "List": "list", "Dict": "dict", "Set": "set", "FrozenSet": "frozenset",
-    "Tuple": "tuple", "Type": "type", "Deque": "collections.deque",
+    "List": "list",
+    "Dict": "dict",
+    "Set": "set",
+    "FrozenSet": "frozenset",
+    "Tuple": "tuple",
+    "Type": "type",
+    "Deque": "collections.deque",
 }
 
 
@@ -121,20 +126,29 @@ class _Visitor(ast.NodeVisitor):
         if bare in _GENERIC_ALIASES and (name == bare or name == f"typing.{bare}"):
             inner = _segment(self.lines, node.slice)
             self._add(
-                node, f"{_GENERIC_ALIASES[bare]}[{inner}]", "pep585-generics", MECHANICAL,
+                node,
+                f"{_GENERIC_ALIASES[bare]}[{inner}]",
+                "pep585-generics",
+                MECHANICAL,
                 "typing.List and list are the same type at runtime from 3.9",
             )
         elif bare == "Optional" and (name == bare or name == f"typing.{bare}"):
             inner = _segment(self.lines, node.slice)
             self._add(
-                node, f"{inner} | None", "pep604-optional", MECHANICAL,
+                node,
+                f"{inner} | None",
+                "pep604-optional",
+                MECHANICAL,
                 "Optional[X] and X | None are the same annotation from 3.10",
             )
         elif bare == "Union" and (name == bare or name == f"typing.{bare}"):
             if isinstance(node.slice, ast.Tuple):
                 parts = [_segment(self.lines, e) for e in node.slice.elts]
                 self._add(
-                    node, " | ".join(parts), "pep604-union", MECHANICAL,
+                    node,
+                    " | ".join(parts),
+                    "pep604-union",
+                    MECHANICAL,
                     "Union[A, B] and A | B are the same annotation from 3.10",
                 )
         self.generic_visit(node)
@@ -145,7 +159,10 @@ class _Visitor(ast.NodeVisitor):
         # The behavioural one.
         if name.endswith("utcnow") and not node.args and not node.keywords:
             self._add(
-                node, "datetime.now(timezone.utc)", "utcnow-deprecated", BEHAVIOURAL,
+                node,
+                "datetime.now(timezone.utc)",
+                "utcnow-deprecated",
+                BEHAVIOURAL,
                 "utcnow() returns a NAIVE datetime; now(timezone.utc) returns an AWARE "
                 "one. Comparing the two raises TypeError, so this is a semantic change, "
                 "not a rename. Requires `from datetime import timezone`.",
@@ -153,14 +170,19 @@ class _Visitor(ast.NodeVisitor):
         elif name.endswith("utcfromtimestamp") and len(node.args) == 1:
             arg = _segment(self.lines, node.args[0])
             self._add(
-                node, f"datetime.fromtimestamp({arg}, timezone.utc)",
-                "utcfromtimestamp-deprecated", BEHAVIOURAL,
+                node,
+                f"datetime.fromtimestamp({arg}, timezone.utc)",
+                "utcfromtimestamp-deprecated",
+                BEHAVIOURAL,
                 "same naive-to-aware change as utcnow()",
             )
         # datetime.datetime.now() with no tz is naive, and usually not intended.
         elif name.endswith("datetime.now") and not node.args and not node.keywords:
             self._add(
-                node, "datetime.now(timezone.utc)", "naive-now", BEHAVIOURAL,
+                node,
+                "datetime.now(timezone.utc)",
+                "naive-now",
+                BEHAVIOURAL,
                 "now() with no timezone returns a naive local datetime; whether UTC is "
                 "the right choice depends on the caller, so this is never applied",
             )
@@ -172,8 +194,11 @@ ALL_RULES: tuple[tuple[str, str, str], ...] = (
     ("pep604-optional", MECHANICAL, "Optional[X] -> X | None"),
     ("pep604-union", MECHANICAL, "Union[A, B] -> A | B"),
     ("utcnow-deprecated", BEHAVIOURAL, "datetime.utcnow() -> datetime.now(timezone.utc)"),
-    ("utcfromtimestamp-deprecated", BEHAVIOURAL,
-     "datetime.utcfromtimestamp(x) -> datetime.fromtimestamp(x, timezone.utc)"),
+    (
+        "utcfromtimestamp-deprecated",
+        BEHAVIOURAL,
+        "datetime.utcfromtimestamp(x) -> datetime.fromtimestamp(x, timezone.utc)",
+    ),
     ("naive-now", BEHAVIOURAL, "datetime.now() with no timezone"),
 )
 

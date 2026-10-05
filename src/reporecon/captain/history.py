@@ -25,9 +25,17 @@ DOC_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
 
 CONFIG_NAMES = frozenset(
     {
-        "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "uv.lock",
-        "package.json", "package-lock.json", "Dockerfile", "docker-compose.yml",
-        ".gitignore", "Makefile",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "uv.lock",
+        "package.json",
+        "package-lock.json",
+        "Dockerfile",
+        "docker-compose.yml",
+        ".gitignore",
+        "Makefile",
     }
 )
 
@@ -170,7 +178,7 @@ class History:
             if len(paths) < 2 or len(paths) > 30:
                 continue  # a 200-file commit couples nothing meaningfully
             for i, a in enumerate(paths):
-                for b in paths[i + 1:]:
+                for b in paths[i + 1 :]:
                     pairs[a][b] += 1
                     pairs[b][a] += 1
         return pairs
@@ -249,8 +257,6 @@ def read_history(repo: Path, limit: int | None = None) -> History:
                 path = path.split(" => ")[-1].strip("}")
             files.append(FileChange(path=path.replace("\\", "/"), added=added, deleted=deleted))
 
-        commits.append(
-            Commit(sha=sha, author=author, when=when, subject=subject, files=files)
-        )
+        commits.append(Commit(sha=sha, author=author, when=when, subject=subject, files=files))
 
     return History(repo=repo.name, commits=commits)

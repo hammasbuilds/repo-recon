@@ -97,7 +97,8 @@ def _defeat_mutable_default(context: FileContext, proposal: Proposal) -> str | N
     name = proposal.evidence.get("function")
     target = next(
         (
-            n for n in ast.walk(context.tree)
+            n
+            for n in ast.walk(context.tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
         ),
         None,
@@ -114,8 +115,19 @@ def _defeat_mutable_default(context: FileContext, proposal: Proposal) -> str | N
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and getattr(node.func.value, "id", None) == parameter
-            and node.func.attr in ("append", "extend", "insert", "pop", "remove",
-                                   "clear", "update", "add", "setdefault", "sort")
+            and node.func.attr
+            in (
+                "append",
+                "extend",
+                "insert",
+                "pop",
+                "remove",
+                "clear",
+                "update",
+                "add",
+                "setdefault",
+                "sort",
+            )
         ):
             return None  # mutated: the proposal stands
         if isinstance(node, (ast.Assign, ast.AugAssign)):
@@ -123,16 +135,16 @@ def _defeat_mutable_default(context: FileContext, proposal: Proposal) -> str | N
                 if isinstance(sub, ast.Subscript) and getattr(sub.value, "id", None) == parameter:
                     return None
     return (
-        f"the default is never mutated inside {name}(); sharing it between calls "
-        f"cannot be observed"
+        f"the default is never mutated inside {name}(); sharing it between calls cannot be observed"
     )
 
 
 def _parameter_for_default(function: ast.AST, line: int) -> str | None:
     args = function.args
     positional = [*args.posonlyargs, *args.args]
-    for arg, default in zip(positional[len(positional) - len(args.defaults):],
-                            args.defaults, strict=False):
+    for arg, default in zip(
+        positional[len(positional) - len(args.defaults) :], args.defaults, strict=False
+    ):
         if default.lineno == line:
             return arg.arg
     for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
@@ -161,8 +173,15 @@ def _defeat_eq_none(context: FileContext, proposal: Proposal) -> str | None:
     where `is None` would be wrong.
     """
     lowered = context.source.lower()
-    for marker in ("sqlalchemy", "django.db", "from django", "import pandas",
-                   "peewee", "tortoise", "sqlmodel"):
+    for marker in (
+        "sqlalchemy",
+        "django.db",
+        "from django",
+        "import pandas",
+        "peewee",
+        "tortoise",
+        "sqlmodel",
+    ):
         if marker in lowered:
             return f"the file imports {marker}, where `== None` builds a query expression"
     return None

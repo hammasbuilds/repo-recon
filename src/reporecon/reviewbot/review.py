@@ -63,16 +63,15 @@ class Review:
         return {k: (v[0], v[1]) for k, v in out.items()}
 
 
-def review_source(
-    path: str, source: str, changed_lines: set[int] | None = None
-) -> FileReview:
+def review_source(path: str, source: str, changed_lines: set[int] | None = None) -> FileReview:
     """Propose on the whole file, verify with full context, filter to the diff."""
     context = FileContext.build(path, source)
     proposals: list[Proposal] = propose(source)
 
     if changed_lines is not None:
         proposals = [
-            p for p in proposals
+            p
+            for p in proposals
             if any(line in changed_lines for line in range(p.line, p.end_line + 1))
         ]
 
@@ -127,7 +126,11 @@ def added_lines(diff: str) -> dict[str, set[int]]:
 def git_diff(repo: Path, ref: str = "HEAD~1") -> str:
     proc = subprocess.run(
         ["git", "-C", str(repo), "diff", "--unified=0", ref],
-        capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace",
+        capture_output=True,
+        text=True,
+        timeout=120,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[:200] or "git diff failed")
@@ -182,9 +185,7 @@ def render(review: Review, show_retracted: bool = False) -> str:
         out.append("  RETRACTED  (proposed, then defeated)")
         for file in review.files:
             for verdict in file.retracted:
-                out.append(
-                    f"    {file.path}:{verdict.proposal.line} {verdict.rule}"
-                )
+                out.append(f"    {file.path}:{verdict.proposal.line} {verdict.rule}")
                 out.append(f"              defeated: {verdict.reason}")
 
     by_rule = review.by_rule()

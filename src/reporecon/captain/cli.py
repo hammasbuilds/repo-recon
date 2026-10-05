@@ -61,8 +61,10 @@ def _explain_command(args: argparse.Namespace) -> int:
     commit = match[0]
     factors = score_commit(commit, baseline)
     print(f"{commit.sha[:10]}  {commit.subject}")
-    print(f"  {commit.churn} lines, {len(commit.files)} files, "
-          f"{commit.spread} areas, tests {'yes' if commit.touches_tests else 'NO'}")
+    print(
+        f"  {commit.churn} lines, {len(commit.files)} files, "
+        f"{commit.spread} areas, tests {'yes' if commit.touches_tests else 'NO'}"
+    )
     print(f"  risk {factors.score()}")
     print()
     print(f"  {'factor':10s} {'raw':>6s} {'points':>7s}")

@@ -7,7 +7,6 @@ CLI should not be the thing that introduces one.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 

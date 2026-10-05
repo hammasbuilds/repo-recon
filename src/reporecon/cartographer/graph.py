@@ -282,16 +282,12 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 if target is None:
                     target = local.get(head)
                 if target is None and head in imported:
-                    target = _follow_reexports(
-                        imported[head], head, imports, by_qualname
-                    )
+                    target = _follow_reexports(imported[head], head, imports, by_qualname)
             else:
                 # Dotted: module.func, or Class.method via an import.
                 first = rest.split(".")[0]
                 if head in imported:
-                    target = _follow_reexports(
-                        imported[head], first, imports, by_qualname
-                    )
+                    target = _follow_reexports(imported[head], first, imports, by_qualname)
                 if target is None and head in local:
                     # Class defined here, method called on it.
                     target = cls_methods.get(local[head].qualname, {}).get(first)
@@ -307,9 +303,7 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 )
             else:
                 res.unresolved[call.callee] += 1
-                reason = _classify_miss(
-                    call.callee, mod.module, external, internal_names
-                )
+                reason = _classify_miss(call.callee, mod.module, external, internal_names)
                 if reason == "missed":
                     res.missed[call.callee] += 1
                 else:
@@ -348,9 +342,7 @@ def build_graph(repo: ParsedRepo) -> RepoGraph:
     )
 
 
-def pagerank(
-    graph: RepoGraph, damping: float = 0.85, iterations: int = 40
-) -> dict[str, float]:
+def pagerank(graph: RepoGraph, damping: float = 0.85, iterations: int = 40) -> dict[str, float]:
     """Rank modules by how much the repo's own imports depend on them.
 
     Plain in-degree says "imported often". PageRank says "imported by modules

@@ -11,8 +11,8 @@ import textwrap
 
 import pytest
 
-from pilot.apply import apply_edits, modernise, modernise_until_stable
-from pilot.rules import BEHAVIOURAL, MECHANICAL, RULE_KIND, scan_source
+from reporecon.pilot.apply import apply_edits, modernise, modernise_until_stable
+from reporecon.pilot.rules import BEHAVIOURAL, MECHANICAL, RULE_KIND, scan_source
 
 
 def scan(source: str, rules=None):
@@ -124,7 +124,7 @@ def test_naive_now_is_behavioural_not_mechanical():
 
 
 def test_a_rewrite_that_would_not_parse_is_discarded():
-    from pilot.rules import Edit
+    from reporecon.pilot.rules import Edit
 
     source = "x: List[int]\n"
     broken = Edit(1, 3, 1, 12, "list[[[", "bogus", MECHANICAL)
@@ -135,7 +135,7 @@ def test_a_rewrite_that_would_not_parse_is_discarded():
 
 def test_a_mechanical_rewrite_that_changes_code_is_discarded():
     """The equivalence check exists so a buggy rule cannot corrupt a file."""
-    from pilot.rules import Edit
+    from reporecon.pilot.rules import Edit
 
     source = "x: List[int] = [1]\nprint(x)\n"
     sabotage = Edit(2, 0, 2, 8, "print(0)", "bogus", MECHANICAL)

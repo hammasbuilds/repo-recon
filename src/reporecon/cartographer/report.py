@@ -166,8 +166,10 @@ def render_text(report: RepoReport) -> str:
     add = out.append
 
     add("=" * w)
-    add(f"  {report.name}  -  {report.modules} modules, {report.symbols} definitions, "
-        f"{report.loc:,} lines")
+    add(
+        f"  {report.name}  -  {report.modules} modules, {report.symbols} definitions, "
+        f"{report.loc:,} lines"
+    )
     add("=" * w)
 
     if report.excluded_projects:
@@ -184,8 +186,10 @@ def render_text(report: RepoReport) -> str:
 
     add("")
     add("  CALL RESOLUTION")
-    add(f"    {report.resolved_calls} of {report.in_scope_calls} repo-internal calls "
-        f"resolved  ({report.repo_resolution_rate:.0%})")
+    add(
+        f"    {report.resolved_calls} of {report.in_scope_calls} repo-internal calls "
+        f"resolved  ({report.repo_resolution_rate:.0%})"
+    )
     add(f"    {report.total_calls} call sites in total; the rest are builtins,")
     add("    the standard library, or methods on third-party objects.")
 

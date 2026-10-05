@@ -63,19 +63,23 @@ class _Proposer(ast.NodeVisitor):
         for default in [*node.args.defaults, *[d for d in node.args.kw_defaults if d]]:
             if isinstance(default, (ast.List, ast.Dict, ast.Set)):
                 self._add(
-                    default, "mutable-default",
+                    default,
+                    "mutable-default",
                     f"{type(default).__name__.lower()} used as a default argument in "
                     f"{node.name}(); it is created once and shared between calls",
-                    "bug", function=node.name,
+                    "bug",
+                    function=node.name,
                 )
             elif isinstance(default, ast.Call):
                 name = getattr(default.func, "id", None) or getattr(default.func, "attr", "")
                 if name in ("list", "dict", "set"):
                     self._add(
-                        default, "mutable-default",
+                        default,
+                        "mutable-default",
                         f"{name}() as a default argument in {node.name}(); evaluated "
                         f"once at definition, not per call",
-                        "bug", function=node.name,
+                        "bug",
+                        function=node.name,
                     )
 
         self.function_stack.append(node)
@@ -91,15 +95,19 @@ class _Proposer(ast.NodeVisitor):
 
         if node.type is None:
             self._add(
-                node, "bare-except",
+                node,
+                "bare-except",
                 "bare `except:` catches KeyboardInterrupt and SystemExit as well",
-                "bug", swallows=body_is_pass,
+                "bug",
+                swallows=body_is_pass,
             )
         elif getattr(node.type, "id", None) == "Exception" and body_is_pass:
             self._add(
-                node, "swallowed-exception",
+                node,
+                "swallowed-exception",
                 "`except Exception: pass` discards the error and continues",
-                "bug", swallows=True,
+                "bug",
+                swallows=True,
             )
         self.generic_visit(node)
 
@@ -110,13 +118,15 @@ class _Proposer(ast.NodeVisitor):
             if isinstance(op, (ast.Eq, ast.NotEq)) and isinstance(comparator, ast.Constant):
                 if comparator.value is None:
                     self._add(
-                        node, "eq-none",
+                        node,
+                        "eq-none",
                         "compares to None with == rather than `is`",
                         "smell",
                     )
                 elif isinstance(comparator.value, bool):
                     self._add(
-                        node, "eq-bool",
+                        node,
+                        "eq-bool",
                         f"compares to {comparator.value} explicitly",
                         "smell",
                     )
@@ -138,9 +148,12 @@ class _Proposer(ast.NodeVisitor):
                     and getattr(func.value, "id", None) == target
                 ):
                     self._add(
-                        inner, "mutate-while-iterating",
+                        inner,
+                        "mutate-while-iterating",
                         f"`{target}` is mutated with .{func.attr}() while being iterated",
-                        "bug", collection=target, method=func.attr,
+                        "bug",
+                        collection=target,
+                        method=func.attr,
                     )
         self.generic_visit(node)
 
@@ -150,7 +163,8 @@ class _Proposer(ast.NodeVisitor):
         name = getattr(node.func, "id", None)
         if name == "open":
             self._add(
-                node, "open-without-with",
+                node,
+                "open-without-with",
                 "open() result may not be closed; consider a `with` block",
                 "smell",
             )
@@ -160,7 +174,8 @@ class _Proposer(ast.NodeVisitor):
 
     def visit_Assert(self, node: ast.Assert) -> None:  # noqa: N802
         self._add(
-            node, "assert-in-source",
+            node,
+            "assert-in-source",
             "assert is removed under `python -O`, so this check may not run",
             "smell",
         )

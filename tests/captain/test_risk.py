@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from captain.gate import BLOCK, PASS, WARN, evaluate
-from captain.history import Commit, FileChange, History
-from captain.risk import Baseline, rank_by, rank_disagreement, score_commit
+from reporecon.captain.gate import BLOCK, PASS, WARN, evaluate
+from reporecon.captain.history import Commit, FileChange, History
+from reporecon.captain.risk import Baseline, rank_by, rank_disagreement, score_commit
 
 WHEN = datetime(2026, 9, 17, tzinfo=timezone.utc)
 
@@ -41,7 +41,8 @@ def test_a_wide_change_outranks_a_voluminous_one():
     """
     dump = make("a", "regenerate results", [(f"results/r{i}.json", 10000, 0) for i in range(5)])
     refactor = make(
-        "b", "rename across the package",
+        "b",
+        "rename across the package",
         [(f"src/pkg/m{i}.py", 8, 8) for i in range(60)] + [("tests/test_all.py", 5, 5)],
     )
     assert dump.churn > refactor.churn * 5
@@ -116,6 +117,7 @@ def test_explain_is_ordered_by_contribution():
 
 # -- baselines are relative -----------------------------------------------
 
+
 def test_the_same_commit_scores_lower_in_a_repo_of_large_commits():
     """A 400-line change is unremarkable where the median is 700."""
     commit = make("a", "x", [("src/pkg/a.py", 300, 100), ("tests/t.py", 10, 0)])
@@ -146,10 +148,9 @@ def test_all_source_commits_untested_blocks():
 
 
 def test_well_tested_small_release_passes():
-    h = _history([
-        make(str(i), "x", [("src/a.py", 10, 2), ("tests/test_a.py", 8, 0)])
-        for i in range(4)
-    ])
+    h = _history(
+        [make(str(i), "x", [("src/a.py", 10, 2), ("tests/test_a.py", 8, 0)]) for i in range(4)]
+    )
     result = evaluate(h)
     assert not result.blocked
     assert result.verdict in ("GO", "GO WITH WARNINGS")

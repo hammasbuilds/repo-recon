@@ -87,9 +87,7 @@ def evaluate(
     result = GateResult(repo=history.repo, commits_considered=len(commits))
 
     if not commits:
-        result.checks.append(
-            Check("nothing to release", BLOCK, "no commits in range", 0, 1)
-        )
+        result.checks.append(Check("nothing to release", BLOCK, "no commits in range", 0, 1))
         return result
 
     scored = sorted(
@@ -107,8 +105,7 @@ def evaluate(
             Check(
                 "source changes without tests",
                 _band(share, untested_warn, untested_block),
-                f"{len(untested)} of {len(source)} source-changing commits "
-                f"changed no test file",
+                f"{len(untested)} of {len(source)} source-changing commits changed no test file",
                 round(share, 3),
                 untested_warn,
             )
@@ -156,9 +153,7 @@ def evaluate(
             )
         )
     else:
-        result.checks.append(
-            Check("commits far above this repo's median", PASS, "none", 0, 0)
-        )
+        result.checks.append(Check("commits far above this repo's median", PASS, "none", 0, 0))
 
     return result
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from cartographer.parse import (
+from reporecon.cartographer.parse import (
     UNNAMEABLE,
     detect_internal_prefixes,
     find_nested_projects,
@@ -93,13 +93,17 @@ def test_methods_are_distinguished_from_functions(repo: Path):
 
 
 def test_nested_function_is_not_a_method(tmp_path: Path):
-    write(tmp_path, "pkg/mod.py", """
+    write(
+        tmp_path,
+        "pkg/mod.py",
+        """
         class C:
             def outer(self):
                 def inner():
                     return 1
                 return inner()
-    """)
+    """,
+    )
     parsed = parse_repo(tmp_path)
     kinds = {s.qualname: s.kind for s in parsed.symbols}
     assert kinds["pkg.mod.C.outer"] == "method"
@@ -212,12 +216,16 @@ def test_relative_import_inside_package_init_resolves_to_sibling(tmp_path: Path)
     """
     write(tmp_path, "src/pkg/__init__.py", "from .normalise import clean")
     write(tmp_path, "src/pkg/normalise.py", "def clean(s): return s")
-    write(tmp_path, "src/pkg/app.py", """
+    write(
+        tmp_path,
+        "src/pkg/app.py",
+        """
         from pkg import clean
 
         def run(s):
             return clean(s)
-    """)
+    """,
+    )
     parsed = parse_repo(tmp_path)
     init = next(m for m in parsed.modules if m.module == "pkg")
     assert init.imports[0].target == "pkg.normalise"

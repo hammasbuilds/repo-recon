@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hammasbuilds/repo-recon",
+  "title": "Repo Recon",
+  "description": "Read an unfamiliar Python codebase from its AST: structure, impact, modernisation risk, release readiness. Writes nothing, runs nothing.",
+  "repository": {
+    "url": "https://github.com/hammasbuilds/repo-recon",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "repo-recon",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "REPO_RECON_ROOT",
+          "description": "A directory every path argument must sit under. Optional, and worth setting: a filesystem path is this server's only input, so this is the one thing worth bounding. Without it, any readable path on the machine can be analysed.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
+        }
+      ]
+    }
+  ]
+}

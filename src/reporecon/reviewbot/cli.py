@@ -6,18 +6,29 @@ import argparse
 import json
 import sys
 import warnings
-from collections import Counter
 from pathlib import Path
 
-from .checks import RULES, propose
+from .checks import RULES
 from .review import Review, render, review_diff, review_source
-from .verify import FileContext, verify_all
+from .verify import FileContext
 
 SKIP_DIRS = frozenset(
     {
-        ".git", ".venv", ".venvs", "venv", "env", "__pycache__", ".pytest_cache",
-        ".ruff_cache", ".mypy_cache", "node_modules", "build", "dist", ".tox",
-        ".eggs", "site-packages",
+        ".git",
+        ".venv",
+        ".venvs",
+        "venv",
+        "env",
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+        "node_modules",
+        "build",
+        "dist",
+        ".tox",
+        ".eggs",
+        "site-packages",
     }
 )
 
@@ -26,7 +37,8 @@ def _python_files(target: Path) -> list[Path]:
     if target.is_file():
         return [target]
     return sorted(
-        p for p in target.rglob("*.py")
+        p
+        for p in target.rglob("*.py")
         if not any(part in SKIP_DIRS for part in p.relative_to(target).parts)
     )
 
@@ -81,8 +93,7 @@ def _scan_command(args: argparse.Namespace) -> int:
                     "retracted": review.retracted,
                     "retraction_rate": round(review.retraction_rate, 4),
                     "by_rule": {
-                        k: {"proposed": p, "confirmed": c}
-                        for k, (p, c) in review.by_rule().items()
+                        k: {"proposed": p, "confirmed": c} for k, (p, c) in review.by_rule().items()
                     },
                 },
                 indent=2,
