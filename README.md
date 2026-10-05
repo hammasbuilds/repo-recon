@@ -53,7 +53,7 @@ refused if it falls outside. See [SECURITY.md](SECURITY.md).
 
 | Tool | Answers | From |
 |---|---|---|
-| **`map_repo`** | what is in here, what depends on what, where to start reading | the AST, PageRank over the call graph |
+| **`map_repo`** | what is in here, what depends on what, where to start reading | the AST, PageRank over the import graph |
 | **`trace_impact`** | what breaks if this definition changes | reversed call edges, capped at three hops |
 | **`check_modernisation`** | what can be modernised, and what that would change the *meaning* of | AST rewrite rules, two classes kept apart |
 | **`review_diff`** | which review findings survive an attempt to disprove them | propose, verify against full context, retract |
@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.4%** bind to a
+number means anything. Of the call sites in this repository, **27.5%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **86.2%** do.
+method on a third-party object — **86.5%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -101,10 +101,10 @@ returned, and the tool description says which is which.
 ```
 map_repo - what is in here
 --------------------------
-30 modules, 390 symbols, 6,689 lines
-call graph: 527 of 611 in-scope calls bound to a definition here (86.2%)
-  the same number over EVERY call site, builtins included: 27.4% - which measures nothing
-core modules by PageRank over the call graph:
+30 modules, 396 symbols, 6,800 lines
+call graph: 539 of 623 in-scope calls bound to a definition here (86.5%)
+  the same number over EVERY call site, builtins included: 27.5% - which measures nothing
+core modules by PageRank over the import graph:
   reporecon.cartographer.parse
   reporecon.captain.history
   reporecon.reviewbot.checks

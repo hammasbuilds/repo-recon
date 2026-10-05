@@ -174,3 +174,45 @@ def test_every_rewritten_file_still_parses():
             return len(b) if a else ""
     """).lstrip()
     ast.parse(modernise_until_stable("t.py", source)[0])
+
+
+# --- "mechanical" has to mean it ------------------------------------------------------
+
+
+def test_a_locally_defined_name_is_not_typings():
+    """A file with its own `class List` had `List[int]` rewritten to `list[int]`.
+
+    Reported as MECHANICAL — the class this tool defines as "provably equivalent" and
+    "cannot change behaviour" — while changing which type the annotation names. The
+    mechanical/behavioural split is the reason this project exists.
+    """
+    source = (
+        "class List:\n"
+        "    def __class_getitem__(cls, item):\n"
+        "        return cls\n"
+        "\n"
+        "X: List[int] = None\n"
+    )
+    assert [e.rule for e in scan_source("m.py", source).edits] == []
+
+
+def test_a_replacement_that_needs_an_import_the_file_lacks_is_not_offered():
+    """`Deque` becomes `collections.deque`, and a file that imported Deque from typing
+    has no reason to have imported collections. The edit produced a NameError."""
+    without = "from typing import Deque\n\nX: Deque[int] = None\n"
+    assert [e.rule for e in scan_source("m.py", without).edits] == []
+
+    with_import = "import collections\nfrom typing import Deque\n\nX: Deque[int] = None\n"
+    assert [e.replacement for e in scan_source("m.py", with_import).edits] == [
+        "collections.deque[int]"
+    ]
+
+
+def test_a_forward_reference_is_left_alone():
+    """`Optional["Missing"]` becomes `"Missing" | None`, which is a TypeError the moment
+    the expression is evaluated — and a module-level assignment evaluates immediately."""
+    assert [e.rule for e in scan_source("m.py", 'X = Optional["Missing"]\n').edits] == []
+    assert [e.rule for e in scan_source("m.py", 'X = Union["A", "B"]\n').edits] == []
+    assert [
+        e.rule for e in scan_source("m.py", "def f(x: Optional[int]) -> None: ...\n").edits
+    ] == ["pep604-optional"]

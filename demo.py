@@ -36,7 +36,7 @@ def main() -> int:
         f"  the same number over EVERY call site, builtins included: "
         f"{report['resolution_rate']:.1%} - which measures nothing"
     )
-    print("core modules by PageRank over the call graph:")
+    print("core modules by PageRank over the import graph:")
     for card in report["core_modules"][:5]:
         print(f"  {card['module']}")
     print("entry points - called by nothing in this repository:")

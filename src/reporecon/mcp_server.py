@@ -166,7 +166,7 @@ TOOLS: list[dict[str, Any]] = [
         "map_repo",
         "Map a repository",
         "What is in this repository and what depends on what, read from the AST: the "
-        "modules that matter by PageRank over the call graph, the entry points, the "
+        "modules that matter by PageRank over the import graph, the entry points, the "
         "most-called definitions, and how much of the call graph resolved. Read the "
         "resolution rate before trusting the rest: it is the share of in-scope calls "
         "that bound to a definition here, and a low one means the map is partial. No "
@@ -215,7 +215,7 @@ TOOLS: list[dict[str, Any]] = [
             },
             "core_modules": {
                 "type": "array",
-                "description": "Ranked by PageRank over the call graph, most central first.",
+                "description": "Ranked by PageRank over the import graph, most central first.",
                 "items": {
                     "type": "object",
                     "properties": {

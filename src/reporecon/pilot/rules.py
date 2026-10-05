@@ -95,11 +95,70 @@ def _segment(source_lines: list[str], node: ast.AST) -> str:
     return "\n".join(parts)
 
 
+def _has_forward_ref(node: ast.expr) -> bool:
+    """A string anywhere inside a subscript: `Optional["Missing"]`.
+
+    `"Missing" | None` is a TypeError when the expression is evaluated, which a
+    module-level `THING = Optional["Missing"]` does immediately. A forward reference
+    is exactly where the old spelling is not interchangeable with the new one.
+    """
+    return any(isinstance(n, ast.Constant) and isinstance(n.value, str) for n in ast.walk(node))
+
+
+def _imports_of(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
+    """(names this module binds itself, modules it imported by name).
+
+    The first is the shadow set: a name defined here is not typing's, whatever it is
+    spelled. The second is for replacements that reference a module - `Deque` becomes
+    `collections.deque`, which is a NameError in a file that never imported collections.
+    """
+    shadowed: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            shadowed.add(node.name)
+        elif isinstance(node, ast.Assign):
+            shadowed.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            shadowed.add(node.target.id)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                modules.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module not in {
+            "typing",
+            "typing_extensions",
+        }:
+            # `from collections import deque` binds deque, not typing's.
+            shadowed.update(a.asname or a.name for a in node.names)
+    return frozenset(shadowed), frozenset(modules)
+
+
 class _Visitor(ast.NodeVisitor):
-    def __init__(self, lines: list[str], enabled: set[str]):
+    def __init__(
+        self,
+        lines: list[str],
+        enabled: set[str],
+        from_typing: frozenset[str] = frozenset(),
+        modules: frozenset[str] = frozenset(),
+    ):
         self.lines = lines
         self.enabled = enabled
+        #: Names this module binds itself: a class, a def, or an assignment. A bare
+        #: `List` was rewritten to `list` wherever it appeared, including in a file
+        #: that defines its own `class List` - a MECHANICAL edit, the class this tool
+        #: defines as "cannot change behaviour", silently changing which type is meant.
+        #: Requiring an explicit `from typing import List` instead would be stricter
+        #: and would miss `import typing as t` and `from typing import *`, so the test
+        #: is for the thing that is actually wrong: something else owns the name.
+        self.from_typing = from_typing
+        #: Modules imported by name, so a replacement that references one can check.
+        self.modules = modules
         self.edits: list[Edit] = []
+
+    def _is_typing(self, name: str, bare: str) -> bool:
+        if name == f"typing.{bare}":
+            return True  # it cannot be written without importing typing
+        return name == bare and bare not in self.from_typing
 
     def _add(self, node: ast.AST, replacement: str, rule: str, kind: str, note: str = "") -> None:
         if rule not in self.enabled:
@@ -123,16 +182,25 @@ class _Visitor(ast.NodeVisitor):
         name = _name_of(node.value)
         bare = name.split(".")[-1] if name else None
 
-        if bare in _GENERIC_ALIASES and (name == bare or name == f"typing.{bare}"):
+        if bare in _GENERIC_ALIASES and self._is_typing(name, bare):
+            replacement = _GENERIC_ALIASES[bare]
+            if "." in replacement and replacement.split(".")[0] not in self.modules:
+                # `Deque` becomes `collections.deque`, and a file that imported Deque
+                # from typing has no reason to have imported collections. The edit was
+                # offered as mechanical and produces a NameError.
+                self.generic_visit(node)
+                return
             inner = _segment(self.lines, node.slice)
             self._add(
                 node,
-                f"{_GENERIC_ALIASES[bare]}[{inner}]",
+                f"{replacement}[{inner}]",
                 "pep585-generics",
                 MECHANICAL,
                 "typing.List and list are the same type at runtime from 3.9",
             )
-        elif bare == "Optional" and (name == bare or name == f"typing.{bare}"):
+        elif (
+            bare == "Optional" and self._is_typing(name, bare) and not _has_forward_ref(node.slice)
+        ):
             inner = _segment(self.lines, node.slice)
             self._add(
                 node,
@@ -141,7 +209,7 @@ class _Visitor(ast.NodeVisitor):
                 MECHANICAL,
                 "Optional[X] and X | None are the same annotation from 3.10",
             )
-        elif bare == "Union" and (name == bare or name == f"typing.{bare}"):
+        elif bare == "Union" and self._is_typing(name, bare) and not _has_forward_ref(node.slice):
             if isinstance(node.slice, ast.Tuple):
                 parts = [_segment(self.lines, e) for e in node.slice.elts]
                 self._add(
@@ -216,7 +284,8 @@ def scan_source(path: str, source: str, rules: set[str] | None = None) -> Scan:
         scan.parse_error = f"line {exc.lineno}: {exc.msg}"
         return scan
 
-    visitor = _Visitor(source.splitlines(), enabled)
+    shadowed, modules = _imports_of(tree)
+    visitor = _Visitor(source.splitlines(), enabled, shadowed, modules)
     visitor.visit(tree)
     # Innermost-first, so nested generics are rewritten before their parents
     # are measured. Applying outermost-first would invalidate inner offsets.
