@@ -42,10 +42,6 @@ class Resolution:
     def resolved_count(self) -> int:
         return len(self.edges)
 
-    @property
-    def unresolved_count(self) -> int:
-        return sum(self.unresolved.values())
-
     # Unresolved calls split by *why* they did not resolve.
     out_of_scope: Counter = field(default_factory=Counter)  # builtin/stdlib/3rd-party
     missed: Counter = field(default_factory=Counter)  # should have resolved
@@ -86,7 +82,6 @@ class RepoGraph:
     by_qualname: dict[str, Symbol]
     resolution: Resolution
     callers_of: dict[str, list[CallEdge]]  # callee qualname -> edges into it
-    calls_from: dict[str, list[CallEdge]]  # caller qualname -> edges out of it
     module_imports: dict[str, set[str]]  # module -> internal modules it imports
     module_importers: dict[str, set[str]]  # module -> internal modules importing it
 
@@ -348,10 +343,8 @@ def build_graph(repo: ParsedRepo) -> RepoGraph:
     res = resolve(repo)
 
     callers_of: dict[str, list[CallEdge]] = defaultdict(list)
-    calls_from: dict[str, list[CallEdge]] = defaultdict(list)
     for e in res.edges:
         callers_of[e.callee].append(e)
-        calls_from[e.caller].append(e)
 
     module_imports: dict[str, set[str]] = defaultdict(set)
     module_importers: dict[str, set[str]] = defaultdict(set)
@@ -367,7 +360,6 @@ def build_graph(repo: ParsedRepo) -> RepoGraph:
         by_qualname={s.qualname: s for s in repo.symbols},
         resolution=res,
         callers_of=dict(callers_of),
-        calls_from=dict(calls_from),
         module_imports=dict(module_imports),
         module_importers=dict(module_importers),
     )

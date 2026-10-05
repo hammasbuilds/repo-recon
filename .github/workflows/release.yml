@@ -22,6 +22,7 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest ruff
       - run: ruff check src tests
+      - run: ruff format --check src tests
       - run: pip install -e .
       - run: pytest -q
       # a tag that does not start the server is not a release

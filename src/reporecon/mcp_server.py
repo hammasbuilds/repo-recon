@@ -320,10 +320,17 @@ TOOLS: list[dict[str, Any]] = [
             },
             "callers_by_depth": {
                 "type": "object",
-                "description": "Depth ('1', '2', '3') to the qualnames at that distance.",
+                "description": "Keys are 'hop_1', 'hop_2', 'hop_3': the callers at "
+                "that distance. hop_1 calls the symbol directly; hop_2 calls something "
+                "in hop_1.",
                 "additionalProperties": {"type": "array", "items": {"type": "string"}},
             },
-            "total": {"type": "integer"},
+            "total": {
+                "type": "integer",
+                "description": "Callers across every hop when the symbol resolved, and "
+                "the number of candidates when it did not - read it with `resolved`, "
+                "which says which question was answered.",
+            },
         },
         output_required=["symbol", "total"],
     ),
@@ -801,14 +808,25 @@ class ReconServer:
         errors: list[dict] = []
         mechanical = behavioural = 0
 
+        def shown(p: Path) -> str:
+            """Repo-relative, which is what map_repo reports and what the schema says.
+
+            These were absolute while `_SYMBOL.path` beside them was relative, so two
+            tools answering about the same file disagreed about how to name it.
+            """
+            try:
+                return p.relative_to(target if target.is_dir() else target.parent).as_posix()
+            except ValueError:
+                return str(p)
+
         for path in files:
             try:
                 scan = scan_source(str(path), _read(path), rules)
             except (OSError, ToolError) as exc:
-                errors.append({"path": str(path), "error": str(exc)})
+                errors.append({"path": shown(path), "error": str(exc)})
                 continue
             if scan.parse_error:
-                errors.append({"path": str(path), "error": scan.parse_error})
+                errors.append({"path": shown(path), "error": scan.parse_error})
                 continue
             for edit in scan.edits:
                 mechanical += edit.mechanical
@@ -817,7 +835,7 @@ class ReconServer:
                 if len(edits) < LIST_LIMIT:
                     edits.append(
                         {
-                            "path": str(path),
+                            "path": shown(path),
                             "line": edit.line,
                             "rule": edit.rule,
                             "kind": edit.kind,

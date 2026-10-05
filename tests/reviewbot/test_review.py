@@ -279,13 +279,13 @@ def test_review_diff_runs_against_a_real_commit(tmp_path: Path):
 
 
 def test_the_no_newline_marker_is_not_a_line():
-    """ "\ No newline at end of file" annotates the line before it and belongs to
+    r""" "\ No newline at end of file" annotates the line before it and belongs to
     neither side. Counted as context, it shifted every later added line by one and
     attributed findings to code the change did not touch."""
     from reporecon.reviewbot.review import added_lines
 
     diff = (
-        "--- a/f.py\n+++ b/f.py\n@@ -1,2 +1,2 @@\n-old\n\ No newline at end of file\n+new\n tail\n"
+        "--- a/f.py\n+++ b/f.py\n@@ -1,2 +1,2 @@\n-old\n\\ No newline at end of file\n+new\n tail\n"
     )
     assert added_lines(diff) == {"f.py": {1}}
 

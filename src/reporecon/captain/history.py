@@ -74,10 +74,6 @@ class FileChange:
     def is_doc(self) -> bool:
         return Path(self.path).suffix in DOC_SUFFIXES
 
-    @property
-    def is_config(self) -> bool:
-        return Path(self.path).name in CONFIG_NAMES
-
 
 @dataclass
 class Commit:
@@ -150,20 +146,6 @@ class History:
     @property
     def authors(self) -> Counter:
         return Counter(c.author for c in self.commits)
-
-    def churn_by_file(self) -> Counter:
-        out: Counter = Counter()
-        for c in self.commits:
-            for f in c.files:
-                out[f.path] += f.churn
-        return out
-
-    def commits_by_file(self) -> Counter:
-        out: Counter = Counter()
-        for c in self.commits:
-            for f in c.files:
-                out[f.path] += 1
-        return out
 
     def co_change(self) -> dict[str, Counter]:
         """Which files change together. Coupling the import graph cannot see.
