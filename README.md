@@ -84,7 +84,7 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.8%** bind to a
+number means anything. Of the call sites in this repository, **27.4%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
 method on a third-party object — **87.8%** do.
 
@@ -102,15 +102,15 @@ returned, and the tool description says which is which.
 
 map_repo - what is in here
 --------------------------
-33 modules, 432 symbols, 7,720 lines
+34 modules, 436 symbols, 7,793 lines
 call graph: 618 of 704 in-scope calls bound to a definition here (87.8%)
-  the same number over EVERY call site, builtins included: 27.8% - which measures nothing
+  the same number over EVERY call site, builtins included: 27.4% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.reviewbot.checks
   reporecon.cartographer.parse
   reporecon.pilot.rules
-  reporecon.captain.risk
+  reporecon.mcp_server
 entry points - called by nothing in this repository:
   reporecon.pilot.rules._Visitor.visit_Subscript
   tests.test_mcp_server.test_a_method_on_a_repo_class_counts_and_resolves
@@ -136,7 +136,7 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 21 commits
+verdict: warn over 23 commits
   pass  source changes without tests: 0 of 15 source-changing commits changed no test file
   warn  riskiest commit: 55.5 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
