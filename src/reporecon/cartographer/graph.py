@@ -133,7 +133,13 @@ def _external_names(repo: ParsedRepo) -> dict[str, set[str]]:
     return index
 
 
-def _classify_miss(callee: str, module: str, external: set[str], internal: set[str]) -> str:
+def _classify_miss(
+    callee: str,
+    module: str,
+    external: set[str],
+    internal: set[str],
+    repo_methods: frozenset[str] | set[str] = frozenset(),
+) -> str:
     """Why did this call not resolve: out of scope, or genuinely missed?
 
     Out of scope means it never could have bound to a repo definition - a
@@ -152,9 +158,13 @@ def _classify_miss(callee: str, module: str, external: set[str], internal: set[s
     if head in internal:
         return "missed"  # points into this repo but did not bind
     if rest:
-        # A method on a local variable. Needs type inference, which this tool
-        # deliberately does not attempt.
-        return "out_of_scope"
+        # A method on a variable whose type was not inferred. Dropping all of these
+        # from the denominator is what made `repo_resolution_rate` report 1.000 on a
+        # repository where ten of eleven calls bound to nothing: in object-oriented
+        # code they ARE the calls. In scope when this repository defines a method of
+        # that name somewhere - `engine.run()` - and out of scope when it does not,
+        # which is `response.json()` and `path.exists()`.
+        return "missed" if rest.split(".")[-1] in repo_methods else "out_of_scope"
     return "missed"
 
 
@@ -255,11 +265,19 @@ def resolve(repo: ParsedRepo) -> Resolution:
 
     res = Resolution()
 
+    # Every method name any class in this repo defines. A call on a variable whose type
+    # could not be inferred is in scope if the method is one this repository defines
+    # somewhere, and out of scope otherwise - `response.json()` is not a repo call,
+    # `engine.run()` probably is.
+    repo_methods = {name for methods in cls_methods.values() for name in methods}
+
     for mod in repo.modules:
         local = mod_syms.get(mod.module, {})
         imported = imports.get(mod.module, {})
         external = externals.get(mod.module, set())
         internal_names = set(local) | set(imported)
+        # (scope, name) -> the class it was built from, within this module.
+        bound = {(b.scope, b.name): b.cls for b in getattr(mod, "bindings", ())}
 
         for call in mod.calls:
             res.total_calls += 1
@@ -291,6 +309,17 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 if target is None and head in local:
                     # Class defined here, method called on it.
                     target = cls_methods.get(local[head].qualname, {}).get(first)
+                if target is None:
+                    # A local variable built from a class: `e = Engine()` then `e.run()`.
+                    cls = bound.get((call.caller, head))
+                    if cls:
+                        owner = local.get(cls) or (
+                            by_qualname.get(imported[cls]) if cls in imported else None
+                        )
+                        if owner is None and cls in imported:
+                            owner = _follow_reexports(imported[cls], cls, imports, by_qualname)
+                        if owner is not None:
+                            target = cls_methods.get(owner.qualname, {}).get(first)
 
             if target is not None:
                 res.edges.append(
@@ -303,7 +332,9 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 )
             else:
                 res.unresolved[call.callee] += 1
-                reason = _classify_miss(call.callee, mod.module, external, internal_names)
+                reason = _classify_miss(
+                    call.callee, mod.module, external, internal_names, repo_methods
+                )
                 if reason == "missed":
                     res.missed[call.callee] += 1
                 else:

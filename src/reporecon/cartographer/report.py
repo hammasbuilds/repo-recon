@@ -60,7 +60,12 @@ class RepoReport:
     core_modules: list[ModuleCard] = field(default_factory=list)
     entry_points: list[SymbolCard] = field(default_factory=list)
     most_called: list[SymbolCard] = field(default_factory=list)
+    #: In scope and unresolved - the gap between the numerator and the denominator.
     unresolved_sample: list[tuple[str, int]] = field(default_factory=list)
+    #: Ruled OUT of the denominator. The other half of the measurement, and the half
+    #: that can make a rate look good by shrinking what it is a rate of: a reader who
+    #: cannot see what was excluded cannot check the number against anything.
+    out_of_scope_sample: list[tuple[str, int]] = field(default_factory=list)
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(asdict(self), indent=indent)
@@ -129,6 +134,7 @@ def report_from_graph(graph: RepoGraph, top: int = 12) -> RepoReport:
         entry_points=entries,
         most_called=called,
         unresolved_sample=res.missed.most_common(10),
+        out_of_scope_sample=res.out_of_scope.most_common(10),
     )
 
 

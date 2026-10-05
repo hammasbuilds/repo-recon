@@ -90,6 +90,22 @@ class CallSite:
     line: int
 
 
+@dataclass(frozen=True)
+class Binding:
+    """`engine = Engine()` - a local name and the class it was built from.
+
+    The one kind of type inference this does. Without it every `engine.run()` is a
+    method on a variable of unknown type, which is neither resolvable nor countable,
+    and a repository written in classes resolves almost nothing while reporting that
+    almost everything resolved.
+    """
+
+    scope: str  # qualname of the enclosing definition
+    name: str  # the local variable
+    cls: str  # the class name as written at the call to the constructor
+    line: int
+
+
 @dataclass
 class ParsedModule:
     module: str
@@ -97,6 +113,7 @@ class ParsedModule:
     symbols: list[Symbol] = field(default_factory=list)
     imports: list[ImportEdge] = field(default_factory=list)
     calls: list[CallSite] = field(default_factory=list)
+    bindings: list[Binding] = field(default_factory=list)
     loc: int = 0
     parse_error: str | None = None
 
@@ -218,6 +235,7 @@ class _Visitor(ast.NodeVisitor):
         self.symbols: list[Symbol] = []
         self.imports: list[ImportEdge] = []
         self.calls: list[CallSite] = []
+        self.bindings: list[Binding] = []
         self._scope: list[str] = []  # enclosing def/class names
         self._class_depth = 0
 
@@ -331,6 +349,48 @@ class _Visitor(ast.NodeVisitor):
         )
         self.generic_visit(node)
 
+    # -- local types ----------------------------------------------------
+
+    def _bind(self, target: ast.expr, value: ast.expr | None, line: int) -> None:
+        """Record `name = ClassName(...)`, and `name: ClassName` with or without a value.
+
+        Deliberately shallow: one target, a bare or dotted constructor call, no
+        reassignment tracking and no branches. A name assigned twice from two classes
+        keeps the first binding, which is why the resolver treats a binding as a
+        candidate rather than as proof - it still has to find a class of that name with
+        a method of that name.
+        """
+        if not isinstance(target, ast.Name):
+            return
+        cls = ""
+        if isinstance(value, ast.Call):
+            cls = _callee_name(value.func) or ""
+        if not cls:
+            return
+        self.bindings.append(
+            Binding(scope=self._current_caller, name=target.id, cls=cls, line=line)
+        )
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        if len(node.targets) == 1:
+            self._bind(node.targets[0], node.value, node.lineno)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+        annotation = _callee_name(node.annotation)
+        if isinstance(node.target, ast.Name) and annotation:
+            self.bindings.append(
+                Binding(
+                    scope=self._current_caller,
+                    name=node.target.id,
+                    cls=annotation,
+                    line=node.lineno,
+                )
+            )
+        elif isinstance(node.target, ast.Name):
+            self._bind(node.target, node.value, node.lineno)
+        self.generic_visit(node)
+
     # -- calls ---------------------------------------------------------
 
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
@@ -379,6 +439,7 @@ def parse_module(path: Path, root: Path, internal_prefixes: frozenset[str]) -> P
     parsed.symbols = visitor.symbols
     parsed.imports = visitor.imports
     parsed.calls = visitor.calls
+    parsed.bindings = visitor.bindings
     return parsed
 
 

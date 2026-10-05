@@ -540,3 +540,128 @@ def test_a_diff_that_names_no_file_is_refused_rather_than_ignored(server: ReconS
     with pytest.raises(ToolError) as caught:
         server.review_diff({"path": str(path), "diff": "hello world"})
     assert "names no files" in str(caught.value)
+
+
+# --- the denominator, which is the measurement -----------------------------------------
+
+
+def _write(root: Path, files: dict[str, str]) -> None:
+    for name, source in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(source), encoding="utf-8")
+
+
+def test_a_method_on_a_repo_class_counts_and_resolves(tmp_path: Path):
+    """`repo_resolution_rate` reported 1.000 where ten of eleven calls bound to nothing.
+
+    Every `x.method()` on a local variable went to `out_of_scope` - removed from the
+    denominator rather than counted as unresolved - so a repository written in classes
+    resolved almost nothing and reported that almost everything resolved. The server's
+    own instructions tell a model to read this number, and the README's headline is
+    "the denominator is the measurement".
+    """
+    _write(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/engine.py": """
+                class Engine:
+                    def run(self):
+                        return 1
+
+                    def stop(self):
+                        return 2
+                """,
+            "pkg/main.py": """
+                from pkg.engine import Engine
+
+
+                def go():
+                    e = Engine()
+                    e.run()
+                    e.run()
+                    e.stop()
+                """,
+        },
+    )
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    assert out["total_calls"] == 4  # Engine(), run, run, stop
+    assert out["in_scope_calls"] == 4
+    assert out["resolved_calls"] == 4
+    assert out["repo_resolution_rate"] == 1.0
+    # ...and because they resolved, the methods are not "called by nothing".
+    assert [e["qualname"] for e in out["entry_points"]] == ["pkg.main.go"]
+
+
+def test_a_method_on_someone_elses_object_stays_out_of_the_denominator(tmp_path: Path):
+    """The fix must not go the other way. `response.json()` could never bind here, and
+    counting it would make every repository look unmappable - which is the mistake the
+    original `out_of_scope` bucket exists to avoid."""
+    _write(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/net.py": """
+                import httpx
+
+
+                def fetch(url):
+                    response = httpx.get(url)
+                    return response.json()
+                """,
+        },
+    )
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    assert out["total_calls"] == 2
+    assert out["in_scope_calls"] == 0
+    assert out["repo_resolution_rate"] == 0.0
+
+
+def test_a_method_this_repo_defines_is_in_scope_even_unresolved(tmp_path: Path):
+    """Type inference is one assignment deep on purpose. When it does not reach, the
+    call is still in scope if this repository defines a method of that name - otherwise
+    the rate goes back to flattering itself by shrinking what it is a rate of."""
+    _write(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/engine.py": """
+                class Engine:
+                    def run(self):
+                        return 1
+                """,
+            "pkg/main.py": """
+                def go(engine):
+                    engine.run()
+                """,
+        },
+    )
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    assert out["total_calls"] == 1
+    assert out["in_scope_calls"] == 1, "a parameter's type is not inferred, but run() is ours"
+    assert out["resolved_calls"] == 0
+    assert out["repo_resolution_rate"] == 0.0
+    assert ["engine.run", 1] in out["unresolved_sample"]
+
+
+def test_both_halves_of_the_denominator_are_shown(tmp_path: Path):
+    """`unresolved_sample` showed the gap inside the denominator and nothing showed what
+    was excluded from it - so the one number that can flatter a rate by shrinking it was
+    the one a reader could not see."""
+    _write(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/m.py": """
+                def go(xs):
+                    return len(sorted(xs))
+                """,
+        },
+    )
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    excluded = dict(out["out_of_scope_sample"])
+    assert excluded == {"len": 1, "sorted": 1}
+    assert out["in_scope_calls"] == 0
+    for pair in out["out_of_scope_sample"]:
+        assert isinstance(pair, list), "declared as an array of arrays"

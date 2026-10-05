@@ -248,8 +248,16 @@ TOOLS: list[dict[str, Any]] = [
             "unresolved_sample": {
                 "type": "array",
                 "items": {"type": "array"},
-                "description": "The most frequent call targets that bound to nothing "
-                "here, as [name, count] pairs — the evidence behind the resolution rate.",
+                "description": "In scope and bound to nothing, as [name, count] pairs: "
+                "the gap between resolved_calls and in_scope_calls.",
+            },
+            "out_of_scope_sample": {
+                "type": "array",
+                "items": {"type": "array"},
+                "description": "Ruled OUT of in_scope_calls, as [name, count] pairs - "
+                "builtins, the standard library, and methods on objects this repository "
+                "does not define. The half of the denominator that can flatter the rate "
+                "by shrinking it, so it is shown rather than described.",
             },
             "excluded_projects": {
                 "type": "array",
@@ -642,7 +650,11 @@ class ReconServer:
         payload = asdict(report)
         for key in ("core_modules", "entry_points", "most_called"):
             payload[key] = payload.get(key, [])[:LIST_LIMIT]
-        payload["unresolved_sample"] = payload.get("unresolved_sample", [])[:LIST_LIMIT]
+        for key in ("unresolved_sample", "out_of_scope_sample"):
+            # [name, count] pairs, as the schema says: a tuple survives asdict and is
+            # only a list once JSON has touched it, which is too late for a client
+            # reading the in-process result.
+            payload[key] = [list(pair) for pair in payload.get(key, [])[:LIST_LIMIT]]
         return payload
 
     def trace_impact(self, arguments: dict) -> dict:
