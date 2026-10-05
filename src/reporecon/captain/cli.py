@@ -86,7 +86,11 @@ def _compare_command(args: argparse.Namespace) -> int:
             continue
         try:
             history = read_history(d)
-        except NotAGitRepository:
+        except NotAGitRepository as exc:
+            # `is_repository` said yes and the read said no - a worktree whose gitdir
+            # has gone, usually. Skipped in silence, the survey's denominator shrank
+            # with no sign of it.
+            print(f"  skipped {d.name}: {exc}", file=sys.stderr)
             continue
         n = len(history.commits)
         if n < args.min_commits:

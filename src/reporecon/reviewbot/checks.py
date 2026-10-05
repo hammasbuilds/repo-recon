@@ -98,7 +98,7 @@ class _Proposer(ast.NodeVisitor):
     # -- exception handling ----------------------------------------------
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:  # noqa: N802
-        body_is_pass = len(node.body) == 1 and isinstance(node.body[0], ast.Pass)
+        swallowed = _swallows(node.body)
 
         if node.type is None:
             self._add(
@@ -106,13 +106,20 @@ class _Proposer(ast.NodeVisitor):
                 "bare-except",
                 "bare `except:` catches KeyboardInterrupt and SystemExit as well",
                 "bug",
-                swallows=body_is_pass,
+                swallows=bool(swallowed),
             )
-        elif getattr(node.type, "id", None) == "Exception" and body_is_pass:
+        elif swallowed:
+            # It used to require the type to be a bare `Exception` Name AND the body to
+            # be exactly one `Pass`. Four of the six obvious swallows were invisible:
+            # `except Exception: return None`, `except (ValueError, KeyError): pass`,
+            # `except OSError: pass`, `except Exception: continue` - and this
+            # repository's own `except OSError: continue` among them, so its reviewer
+            # could not see its own code.
+            caught = _exception_names(node.type)
             self._add(
                 node,
                 "swallowed-exception",
-                "`except Exception: pass` discards the error and continues",
+                f"`except {caught}: {swallowed}` discards the error and continues",
                 "bug",
                 swallows=True,
             )
@@ -187,6 +194,45 @@ class _Proposer(ast.NodeVisitor):
             "smell",
         )
         self.generic_visit(node)
+
+
+
+def _swallows(body: list[ast.stmt]) -> str:
+    """How this handler discards the exception, or "" if it does not.
+
+    A handler that does nothing with the error and leaves: `pass`, `continue`, a bare
+    `return`, or a return of a constant. Logging it, re-raising it, or doing any real
+    work is not swallowing - a handler with a body is a decision, and this check is for
+    the ones with no body to speak of.
+    """
+    if len(body) != 1:
+        return ""
+    only = body[0]
+    if isinstance(only, ast.Pass):
+        return "pass"
+    if isinstance(only, ast.Continue):
+        return "continue"
+    if isinstance(only, ast.Break):
+        return "break"
+    if isinstance(only, ast.Return):
+        if only.value is None:
+            return "return"
+        if isinstance(only.value, ast.Constant):
+            return f"return {only.value.value!r}"
+    return ""
+
+
+def _exception_names(node: ast.expr | None) -> str:
+    """The caught type as written: `Exception`, `OSError`, `(ValueError, KeyError)`."""
+    if node is None:
+        return ""
+    if isinstance(node, ast.Tuple):
+        return "(" + ", ".join(_exception_names(e) for e in node.elts) + ")"
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return f"{_exception_names(node.value)}.{node.attr}"
+    return "<expr>"
 
 
 def _defaults_with_parameters(node: ast.AST) -> list[tuple[str, ast.expr]]:

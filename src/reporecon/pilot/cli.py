@@ -67,7 +67,8 @@ def _scan_command(args: argparse.Namespace) -> int:
         for path in _python_files(target):
             try:
                 source = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            except OSError as exc:
+                print(f"  skipped {path}: {exc.strerror or exc}", file=sys.stderr)
                 continue
             scan = scan_source(str(path), source, rules)
             if scan.parse_error:
@@ -137,7 +138,10 @@ def _apply_command(args: argparse.Namespace) -> int:
         for path in _python_files(target):
             try:
                 source = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError) as exc:
+                # A file that cannot be read is a file that was not modernised, and a
+                # rewriting tool that skips files in silence is one you cannot audit.
+                print(f"  skipped {path}: {exc}", file=sys.stderr)
                 continue
             result, applied, rejections = modernise_until_stable(str(path), source, rules)
             for reason in rejections:

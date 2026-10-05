@@ -35,6 +35,9 @@ class FileReview:
 @dataclass
 class Review:
     files: list[FileReview] = field(default_factory=list)
+    #: (path, reason) for files the diff named and this process could not read. They
+    #: contribute no findings, and "no findings" is what a clean file looks like.
+    unreadable: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def proposed(self) -> int:
@@ -158,7 +161,11 @@ def review_diff(repo: Path, ref: str = "HEAD~1") -> Review:
             continue  # deleted in the working tree
         try:
             source = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        except OSError as exc:
+            # A file the diff names and this process cannot read. Skipped in silence,
+            # the review reported no findings for it, which is what a clean file looks
+            # like; it is recorded so "nothing found" is distinguishable from "not read".
+            review.unreadable.append((rel, exc.strerror or str(exc)))
             continue
         file_review = review_source(rel, source, lines)
         if file_review.verdicts:

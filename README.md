@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.8%** bind to a
+number means anything. Of the call sites in this repository, **27.9%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.2%** do.
+method on a third-party object — **87.5%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -102,13 +102,13 @@ returned, and the tool description says which is which.
 
 map_repo - what is in here
 --------------------------
-31 modules, 416 symbols, 7,328 lines
-call graph: 588 of 674 in-scope calls bound to a definition here (87.2%)
-  the same number over EVERY call site, builtins included: 27.8% - which measures nothing
+32 modules, 422 symbols, 7,488 lines
+call graph: 601 of 687 in-scope calls bound to a definition here (87.5%)
+  the same number over EVERY call site, builtins included: 27.9% - which measures nothing
 core modules by PageRank over the import graph:
+  reporecon.reviewbot.checks
   reporecon.cartographer.parse
   reporecon.captain.history
-  reporecon.reviewbot.checks
   reporecon.pilot.rules
   reporecon.mcp_server
 entry points - called by nothing in this repository:
@@ -136,11 +136,11 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 14 commits
-  pass  source changes without tests: 0 of 10 source-changing commits changed no test file
+verdict: warn over 15 commits
+  pass  source changes without tests: 0 of 11 source-changing commits changed no test file
   warn  riskiest commit: 55.4 - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 2850 lines (20x the 142-line median)
+  warn  commits far above this repo's median: 1 commit(s) over 2840 lines (20x the 142-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
@@ -149,8 +149,8 @@ a normal commit here is 142 lines across 4 files
          files 25.0, spread 20.0, volume 10.4
    54.4  f21541b7  Four readers for an unfamiliar codebase, beh
          files 25.0, spread 20.0, volume 9.4
-   38.7  71c21888  Keep the promises SECURITY.md makes
-         files 17.1, spread 15.0, volume 6.6
+   42.6  df1063a0  Delete the surface nothing reads, and descri
+         spread 20.0, files 16.2, volume 5.3
 ```
 
 ## What it will not do

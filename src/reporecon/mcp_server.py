@@ -624,8 +624,10 @@ def _confined_repository(root: Path) -> None:
         return
     try:
         text = marker.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError:
-        return
+    except OSError as exc:
+        # The confinement check could not be made. Returning quietly would let the call
+        # through on exactly the file that exists to redirect it.
+        raise ToolError(f"{marker} cannot be read, so it cannot be checked: {exc}") from None
     if not text.startswith("gitdir:"):
         return
     pointed = Path(text.split(":", 1)[1].strip()).expanduser()
@@ -681,10 +683,14 @@ def _string(arguments: dict, name: str, *, limit: int = 4_000) -> str | None:
     return value.strip() or None
 
 
-def _python_files(target: Path) -> tuple[list[Path], bool]:
-    """Python files under `target`, capped. The flag says whether the cap was hit."""
+def _python_files(target: Path) -> tuple[list[Path], bool, list[Path]]:
+    """Python files under `target`, capped.
+
+    Returns (files, truncated, broken links). The last two are why a scan read less
+    than the tree, and a scan that read less than the tree should say so.
+    """
     if target.is_file():
-        return [target], False
+        return [target], False, []
     skip = {".git", ".venv", "venv", "node_modules", "__pycache__", ".tox", ".mypy_cache"}
     # `rglob` follows directory symlinks and Windows junctions, so a link inside the
     # tree reaches files outside it. With REPO_RECON_ROOT set, a junction under the root
@@ -694,19 +700,23 @@ def _python_files(target: Path) -> tuple[list[Path], bool]:
     confine = _root()
     boundary = confine if confine is not None else target.resolve()
     found: list[Path] = []
+    broken: list[Path] = []
     for path in sorted(target.rglob("*.py")):
         if any(part in skip for part in path.parts):
             continue
         try:
             resolved = path.resolve()
         except OSError:
-            continue  # a broken link
+            # A broken link. Not scanned, and not silently absent either: it comes back
+            # as a parse error so a scan that read less than the tree is visibly so.
+            broken.append(path)
+            continue
         if not (resolved == boundary or resolved.is_relative_to(boundary)):
             continue
         found.append(path)
         if len(found) >= FILE_LIMIT:
-            return found, True
-    return found, False
+            return found, True, broken
+    return found, False, broken
 
 
 def _read(path: Path) -> str:
@@ -802,7 +812,7 @@ class ReconServer:
                 )
             rules = set(rules)
 
-        files, truncated = _python_files(target)
+        files, truncated, broken = _python_files(target)
         edits: list[dict] = []
         by_rule: dict[str, int] = {}
         errors: list[dict] = []
@@ -819,6 +829,8 @@ class ReconServer:
             except ValueError:
                 return str(p)
 
+        for path in broken:
+            errors.append({"path": shown(path), "error": "unreadable: broken link"})
         for path in files:
             try:
                 scan = scan_source(str(path), _read(path), rules)

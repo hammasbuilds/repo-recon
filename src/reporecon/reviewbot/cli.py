@@ -67,7 +67,9 @@ def _scan_command(args: argparse.Namespace) -> int:
         for path in _python_files(target):
             try:
                 source = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            except OSError as exc:
+                # Not reviewed, which is not the same as reviewed and clean.
+                print(f"  skipped {path}: {exc.strerror or exc}", file=sys.stderr)
                 continue
             if not args.include_tests and FileContext.build(str(path), source).is_test:
                 skipped_tests += 1

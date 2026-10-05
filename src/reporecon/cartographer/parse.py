@@ -171,11 +171,13 @@ FILE_LIMIT = 4_000
 SOURCE_LIMIT = 2_000_000
 
 
-def iter_python_files(root: Path, limit: int | None = None) -> tuple[list[Path], list[Path], bool]:
+def iter_python_files(
+    root: Path, limit: int | None = None
+) -> tuple[list[Path], list[Path], bool, list[tuple[Path, str]]]:
     """Every .py file that belongs to this repo, up to `limit`.
 
-    Returns (files, excluded_projects, truncated) so the caller can report what was
-    skipped rather than silently shrinking the map.
+    Returns (files, excluded_projects, truncated, unreadable) so the caller can report
+    what was skipped rather than silently shrinking the map.
     """
     # Read at call time, not bound as a default: a default is captured when the
     # function is defined, so a caller or a test that sets FILE_LIMIT on the module
@@ -185,6 +187,7 @@ def iter_python_files(root: Path, limit: int | None = None) -> tuple[list[Path],
     nested = find_nested_projects(root)
     root = root.resolve()
     out: list[Path] = []
+    unreadable: list[tuple[Path, str]] = []
     for p in root.rglob("*.py"):
         if any(part in SKIP_DIRS for part in p.parts):
             continue
@@ -198,11 +201,14 @@ def iter_python_files(root: Path, limit: int | None = None) -> tuple[list[Path],
         try:
             if not p.resolve().is_relative_to(root):
                 continue
-        except OSError:
-            continue  # a broken link
+        except OSError as exc:
+            # A broken link, which used to be dropped in silence. A file missing from
+            # the map is the kind of thing the map should say it is missing.
+            unreadable.append((p, f"unreadable: {exc.strerror or exc}"))
+            continue
         out.append(p)
     found = sorted(out)
-    return found[:limit], nested, len(found) > limit
+    return found[:limit], nested, len(found) > limit, unreadable
 
 
 def _decorator_name(node: ast.expr) -> str:
@@ -506,15 +512,27 @@ class ParsedRepo:
         return [(m.path, m.parse_error) for m in self.modules if m.parse_error]
 
 
+
+def _relative(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def parse_repo(root: Path) -> ParsedRepo:
     """Parse every Python file that belongs to this repository."""
     root = root.resolve()
-    files, nested, truncated = iter_python_files(root)
+    files, nested, truncated, unreadable = iter_python_files(root)
     internal = detect_internal_prefixes(root, files)
     with warnings.catch_warnings():
         # Vendored and legacy files raise SyntaxWarning on invalid escapes.
         warnings.simplefilter("ignore", SyntaxWarning)
         modules = [parse_module(f, root, internal) for f in files]
+    modules += [
+        ParsedModule(module=module_name_for(f, root), path=_relative(f, root), parse_error=why)
+        for f, why in unreadable
+    ]
     return ParsedRepo(
         root=root,
         modules=modules,
