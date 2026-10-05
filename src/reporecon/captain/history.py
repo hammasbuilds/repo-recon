@@ -204,6 +204,43 @@ def is_repository(path: Path) -> bool:
     return (path / ".git").exists()
 
 
+def _renamed_to(path: str) -> str:
+    """The new path from a numstat rename.
+
+    git writes a rename as `a/{b => c}/d` - the braces are mid-string, around the part
+    that changed, with the shared prefix and suffix outside them. `split(" => ")[-1]`
+    then `.strip("}")` turned `{oldpkg => newpkg}/m.py` into `newpkg}/m.py`: the brace
+    is not at either end so strip never saw it, and a prefixed form lost its prefix.
+    A path ending in `}` is not a Python file, so the commit stopped counting as a
+    source change and the top-level area it contributed was a phantom.
+    """
+    if " => " not in path:
+        return path
+    start = path.find("{")
+    end = path.find("}", start)
+    if start != -1 and end != -1:
+        inner = path[start + 1 : end].split(" => ")[-1]
+        return (path[:start] + inner + path[end + 1 :]).replace("//", "/")
+    return path.split(" => ")[-1]
+
+
+def _unquote(path: str) -> str:
+    """git quotes a path with non-ASCII bytes: `"src/caf\303\251.py"`.
+
+    Left quoted, `Path(path).suffix` is `.py"` rather than `.py`, so the file was not
+    source, the commit was not a source change, and a repository whose Python files all
+    have non-ASCII names reported "no source changes" and passed the test-coupling gate.
+    """
+    if not (path.startswith('"') and path.endswith('"') and len(path) > 1):
+        return path
+    body = path[1:-1]
+    try:
+        raw = body.encode("latin-1", "backslashreplace").decode("unicode_escape")
+        return raw.encode("latin-1").decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return body
+
+
 def read_history(repo: Path, limit: int | None = None) -> History:
     """Every commit with its per-file line counts.
 
@@ -252,9 +289,7 @@ def read_history(repo: Path, limit: int | None = None) -> History:
             # Binary files report "-" for both counts.
             added = int(added_s) if added_s.isdigit() else 0
             deleted = int(deleted_s) if deleted_s.isdigit() else 0
-            # Renames appear as "old => new"; keep the new path.
-            if " => " in path:
-                path = path.split(" => ")[-1].strip("}")
+            path = _unquote(_renamed_to(path))
             files.append(FileChange(path=path.replace("\\", "/"), added=added, deleted=deleted))
 
         commits.append(Commit(sha=sha, author=author, when=when, subject=subject, files=files))

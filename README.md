@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.4%** bind to a
+number means anything. Of the call sites in this repository, **27.6%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **86.9%** do.
+method on a third-party object — **87.0%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -96,14 +96,14 @@ returned, and the tool description says which is which.
 
 ## Output
 
-`python demo.py`, which is where every number above comes from:
+`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half is read from this repository's own history and moves with every commit, so take it as a shape rather than as a figure to check:
 
 ```
 map_repo - what is in here
 --------------------------
-31 modules, 409 symbols, 7,144 lines
-call graph: 564 of 649 in-scope calls bound to a definition here (86.9%)
-  the same number over EVERY call site, builtins included: 27.4% - which measures nothing
+31 modules, 414 symbols, 7,225 lines
+call graph: 576 of 662 in-scope calls bound to a definition here (87.0%)
+  the same number over EVERY call site, builtins included: 27.6% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.cartographer.parse
   reporecon.captain.history
@@ -111,16 +111,17 @@ core modules by PageRank over the import graph:
   reporecon.pilot.rules
   reporecon.mcp_server
 entry points - called by nothing in this repository:
-  reporecon.mcp_server.ReconServer.check_modernisation
-  reporecon.mcp_server.ReconServer.review_diff
-  reporecon.mcp_server.ReconServer.trace_impact
-  reporecon.mcp_server.ReconServer.riskiest_commits
+  reporecon.pilot.rules._Visitor.visit_Subscript
+  tests.test_mcp_server.test_a_method_on_a_repo_class_counts_and_resolves
+  tests.cartographer.test_graph.graph
+  reporecon.pilot.rules._Visitor.visit_Call
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 21 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 24 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
-  hop_2: reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo
+  hop_2: demo.main, reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
+  hop_3: demo:<toplevel>
 
 check_modernisation - and what it would change
 ----------------------------------------------
@@ -134,21 +135,21 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 5 commits
-  pass  source changes without tests: 0 of 2 source-changing commits changed no test file
-  warn  riskiest commit: 56.0 - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+verdict: warn over 12 commits
+  pass  source changes without tests: 0 of 8 source-changing commits changed no test file
+  warn  riskiest commit: 55.1 - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 2 commit(s) over 2100 lines (20x the 105-line median)
+  warn  commits far above this repo's median: 1 commit(s) over 3240 lines (20x the 162-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 105 lines across 4 files
-   56.0  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 11.0
-   55.0  f21541b7  Four readers for an unfamiliar codebase, beh
-         files 25.0, spread 20.0, volume 10.0
-   30.3  3f506268  Reword project notes as implementation and r
-         files 12.5, deletion 6.8, volume 6.0
+a normal commit here is 162 lines across 4 files
+   55.1  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.1
+   54.2  f21541b7  Four readers for an unfamiliar codebase, beh
+         files 25.0, spread 20.0, volume 9.2
+   37.6  71c21888  Keep the promises SECURITY.md makes
+         files 16.1, spread 15.0, volume 6.5
 ```
 
 ## What it will not do

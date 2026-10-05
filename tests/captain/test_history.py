@@ -170,3 +170,49 @@ def test_co_change_pairs_files_that_move_together(repo: Path):
     commit(repo, "two", {"src/a.py": "x=2\n", "src/b.py": "y=2\n"})
     pairs = read_history(repo).co_change()
     assert pairs["src/a.py"]["src/b.py"] == 2
+
+
+def test_a_non_ascii_filename_is_still_a_python_file(repo: Path):
+    """git quotes a path containing non-ASCII bytes: `"src/caf\303\251.py"`.
+
+    Left quoted, `Path(path).suffix` is `.py"` rather than `.py`, so the file was not
+    source, the commit was not a source change, and it lost the whole `untested`
+    component of its risk score. A project whose Python files all have non-ASCII names
+    would report "no source changes" and pass the test-coupling gate.
+    """
+    name = "src/caf" + chr(0xE9) + ".py"
+    commit(repo, "a non-ascii module", {name: "x = 1\n" * 50})
+
+    history = read_history(repo)
+    paths = [f.path for c in history.commits for f in c.files]
+    assert paths == [name]
+    assert all(f.is_source for c in history.commits for f in c.files)
+
+
+def test_a_rename_keeps_the_path_it_moved_to(repo: Path):
+    """git writes a rename as `a/{b => c}/d` — braces around the part that changed,
+    with the shared prefix and suffix outside them. `split(" => ")[-1].strip("}")`
+    produced `newpkg}/m.py`: the brace is mid-string so strip never saw it, the path
+    stopped being a Python file, and a phantom top-level area reached the release gate.
+    """
+    commit(repo, "add oldpkg", {"oldpkg/m.py": "y = 2\n"})
+    git(repo, "mv", "oldpkg", "newpkg")
+    git(repo, "commit", "-qm", "rename oldpkg to newpkg")
+
+    newest = read_history(repo).commits[0]
+    assert [f.path for f in newest.files] == ["newpkg/m.py"]
+    assert all(f.is_source for f in newest.files)
+
+
+def test_two_identical_untested_commits_score_the_same(repo: Path):
+    """The consequence of both bugs, measured. One of these used to score 23.5 and the
+    other 36.0, for the same change under a different filename."""
+    from reporecon.captain.risk import Baseline, score_commit
+
+    commit(repo, "ascii module", {"src/plain.py": "x = 1\n" * 50})
+    commit(repo, "non-ascii module", {"src/caf" + chr(0xE9) + ".py": "x = 1\n" * 50})
+
+    history = read_history(repo)
+    baseline = Baseline.from_history(history)
+    scores = {c.subject: score_commit(c, baseline).score() for c in history.commits}
+    assert len(set(scores.values())) == 1, scores
