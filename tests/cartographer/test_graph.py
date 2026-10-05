@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import textwrap
 from pathlib import Path
 
@@ -167,24 +166,43 @@ def test_call_through_a_package_reexport_resolves(tmp_path: Path):
     assert graph.resolution.repo_resolution_rate == pytest.approx(1.0)
 
 
-REPOS_ROOT = Path(os.environ.get("REPOS_ROOT") or Path.home() / "code").expanduser()
-REAL_REPO = REPOS_ROOT / "langchain-llm"
+#: This repository. The two tests below used to point at a checkout under REPOS_ROOT
+#: that only exists on one machine, so they skipped everywhere else - and they are the
+#: only tests that run the resolver over a real codebase rather than a fixture, which
+#: makes them the ones most worth running. This repo is real, is always present, and is
+#: large enough for both properties to mean something.
+REAL_REPO = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.skipif(not REAL_REPO.exists(), reason="local checkout not present")
-def test_real_repo_resolves_most_of_its_internal_calls():
+def test_a_real_repository_resolves_most_of_its_internal_calls():
     """Pure AST resolution should bind the large majority of repo-internal calls.
 
-    No embeddings, no model. If this drops sharply, resolution has regressed.
+    No embeddings, no model. If this drops sharply, resolution has regressed. The
+    floor is well under the current rate on purpose: it is a regression alarm, not a
+    pin, and pinning it would make every honest change to the denominator a failure.
     """
     graph = build_graph(parse_repo(REAL_REPO))
-    assert graph.resolution.repo_resolution_rate > 0.85
+    assert graph.resolution.repo_resolution_rate > 0.80
+    assert graph.resolution.in_scope_calls > 300, "too small a sample to mean anything"
 
 
-@pytest.mark.skipif(not REAL_REPO.exists(), reason="local checkout not present")
-def test_real_repo_core_module_is_the_shared_one():
-    """langchain-lab's load-bearing module is its shared model registry."""
+def test_a_real_repositorys_ranking_is_not_uniform():
+    """PageRank over the import graph has to separate modules, or it is decoration.
+
+    Asserted as a property rather than a module name: naming the current winner makes
+    the test a record of today's layout, and it would be rewritten rather than read the
+    first time the layout changed.
+    """
     graph = build_graph(parse_repo(REAL_REPO))
     ranks = pagerank(graph)
+    assert len(ranks) > 10
+    ordered = sorted(ranks.values(), reverse=True)
+    assert ordered[0] > ordered[len(ordered) // 2] * 1.5, "the ranking separates nothing"
+
     top = max(ranks, key=ranks.get)
-    assert top.startswith("shared.")
+    importers = [
+        m.module
+        for m in parse_repo(REAL_REPO).modules
+        if any(imp.target == top for imp in m.imports)
+    ]
+    assert len(importers) >= 2, f"{top} is top-ranked and imported by {importers}"

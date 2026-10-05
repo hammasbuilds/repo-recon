@@ -196,7 +196,6 @@ class _Proposer(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-
 def _swallows(body: list[ast.stmt]) -> str:
     """How this handler discards the exception, or "" if it does not.
 

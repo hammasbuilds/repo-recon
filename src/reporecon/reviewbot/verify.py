@@ -224,6 +224,45 @@ def _defeat_swallowed_exception(context: FileContext, proposal: Proposal) -> str
     return None
 
 
+def _defeat_mutate_while_iterating(context: FileContext, proposal: Proposal) -> str | None:
+    """Mutating a list and then leaving the loop is the correct idiom, not the bug.
+
+    `for x in xs: if match(x): xs.remove(x); break` never iterates over the mutated
+    list, because it stops. The rule had no entry in `_DEFEATERS` at all, so it could
+    never be retracted - inside a module whose whole premise is "a proposal survives
+    only if no defeater applies". A rule that cannot lose is not being verified.
+    """
+    if context.tree is None:
+        return None
+    for loop in ast.walk(context.tree):
+        if not isinstance(loop, (ast.For, ast.AsyncFor)):
+            continue
+        for block in _blocks(loop):
+            for index, statement in enumerate(block):
+                mutates = any(
+                    getattr(node, "lineno", None) == proposal.line
+                    for node in ast.walk(statement)
+                    if isinstance(node, ast.Call)
+                )
+                if not mutates:
+                    continue
+                after = block[index:]
+                if any(isinstance(later, (ast.Break, ast.Return)) for later in after):
+                    return "the loop stops immediately after mutating, so it never iterates on"
+    return None
+
+
+def _blocks(node: ast.AST) -> list[list[ast.stmt]]:
+    """Every statement list inside `node`, so a statement's own block can be found."""
+    out: list[list[ast.stmt]] = []
+    for inner in ast.walk(node):
+        for name in ("body", "orelse", "finalbody"):
+            block = getattr(inner, name, None)
+            if isinstance(block, list) and block and isinstance(block[0], ast.stmt):
+                out.append(block)
+    return out
+
+
 _DEFEATERS = {
     "mutable-default": _defeat_mutable_default,
     "bare-except": _defeat_bare_except,
@@ -232,6 +271,7 @@ _DEFEATERS = {
     "eq-bool": _defeat_eq_bool,
     "open-without-with": _defeat_open_without_with,
     "assert-in-source": _defeat_assert_in_source,
+    "mutate-while-iterating": _defeat_mutate_while_iterating,
 }
 
 

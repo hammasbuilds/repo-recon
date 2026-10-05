@@ -512,7 +512,6 @@ class ParsedRepo:
         return [(m.path, m.parse_error) for m in self.modules if m.parse_error]
 
 
-
 def _relative(path: Path, root: Path) -> str:
     try:
         return path.relative_to(root).as_posix()
