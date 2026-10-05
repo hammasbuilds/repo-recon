@@ -1026,10 +1026,34 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
         request_id = message.get("id")
         method = message.get("method")
         params = message.get("params") or {}
-        if request_id is None:
+        if "id" not in message:
             continue  # a notification; nothing to answer
+        if request_id is None:
+            # An explicit null id is not a notification. Treating it as one left a
+            # client that uses null ids waiting for a reply that never came; MCP
+            # forbids the null id, so it is answered as the malformed request it is.
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": INVALID_REQUEST,
+                        "message": "id must not be null; use a string or an integer",
+                    },
+                }
+            )
+            continue
 
         try:
+            if not isinstance(params, dict):
+                # `.get` on a list is an AttributeError, which came back as -32603 with
+                # the Python exception type in the message: an internal error reported
+                # for a caller's mistake, and the implementation leaking into the wire.
+                raise ProtocolError(INVALID_PARAMS, "'params' must be an object")
+            if not isinstance(method, str):
+                # Missing or non-string: the request is malformed, which is -32600. It
+                # was reported as -32601 "unknown method: None", a different claim.
+                raise ProtocolError(INVALID_REQUEST, "request has no method")
             if method == "initialize":
                 asked = params.get("protocolVersion")
                 protocol = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
@@ -1052,6 +1076,18 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                     raise ProtocolError(INVALID_PARAMS, f"unknown tool: {name!r}")
                 if not isinstance(arguments, dict):
                     raise ProtocolError(INVALID_PARAMS, "'arguments' must be an object")
+                # Every input schema says additionalProperties: false, and nothing
+                # enforced it: `{"path": ..., "tpo": 5}` ran happily with top=12, so a
+                # typo silently got the default and the caller was told it had asked
+                # for something it had not.
+                allowed = set(_BY_NAME[name]["inputSchema"].get("properties", {}))
+                unknown = sorted(set(arguments) - allowed)
+                if unknown:
+                    raise ProtocolError(
+                        INVALID_PARAMS,
+                        f"{name} has no argument {unknown[0]!r}; it takes "
+                        + ", ".join(sorted(allowed)),
+                    )
                 try:
                     payload = getattr(server, name)(arguments)
                 except ToolError as exc:

@@ -27,6 +27,7 @@ import pytest
 
 from reporecon.mcp_server import (
     INVALID_PARAMS,
+    INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSIONS,
     ROOT_ENV,
@@ -791,3 +792,77 @@ def test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour(tmp_path: Path
         server.trace_impact({"path": str(tmp_path), "symbol": "helper_extended"})["resolved"]
         == "pkg.mod.helper_extended"
     )
+
+
+# --- the protocol, where a caller's mistake must look like a caller's mistake ----------
+
+
+def _session(messages: list[dict]) -> list[dict]:
+    """Drive the server over a pipe and return its replies."""
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
+    env.pop(ROOT_ENV, None)
+    lines = [json.dumps({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {}})]
+    lines += [json.dumps(m) for m in messages]
+    done = subprocess.run(
+        [sys.executable, "-m", "reporecon.mcp_server"],
+        input="\n".join(lines) + "\n",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=120,
+    )
+    return [json.loads(line) for line in done.stdout.splitlines() if line.strip()]
+
+
+@pytest.mark.parametrize("params", [[1, 2], "x", 7])
+def test_params_that_are_not_an_object_are_the_callers_mistake(params):
+    """`.get` on a list is an AttributeError, which came back as -32603 with the Python
+    exception type in the message: an internal error reported for a caller's mistake,
+    and the implementation leaking onto the wire."""
+    replies = _session([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params}])
+    assert replies[-1]["error"]["code"] == INVALID_PARAMS
+    assert "must be an object" in replies[-1]["error"]["message"]
+
+
+def test_an_explicit_null_id_is_answered_not_ignored():
+    """It was treated as a notification, so a client that uses null ids waited for a
+    reply that never came. MCP forbids the null id; it is a malformed request."""
+    replies = _session([{"jsonrpc": "2.0", "id": None, "method": "ping"}])
+    assert replies[-1]["error"]["code"] == INVALID_REQUEST
+
+    # ...and a real notification, with no id at all, still gets nothing.
+    assert len(_session([{"jsonrpc": "2.0", "method": "notifications/initialized"}])) == 1
+
+
+@pytest.mark.parametrize(
+    "message", [{"jsonrpc": "2.0", "id": 1}, {"jsonrpc": "2.0", "id": 1, "method": 7}]
+)
+def test_a_request_with_no_usable_method_is_malformed_not_unknown(message):
+    """-32601 "unknown method: None" is a different claim from "this request has no
+    method", and only the second one is true."""
+    replies = _session([message])
+    assert replies[-1]["error"]["code"] == INVALID_REQUEST
+
+
+def test_an_argument_no_tool_takes_is_refused():
+    """Every input schema says additionalProperties: false and nothing enforced it, so
+    `{"path": ..., "tpo": 5}` ran happily with top=12 — a typo silently got the default
+    and the caller was told it had asked for something it had not."""
+    replies = _session(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "map_repo",
+                    "arguments": {"path": str(Path(__file__).resolve().parents[1]), "tpo": 5},
+                },
+            }
+        ]
+    )
+    error = replies[-1]["error"]
+    assert error["code"] == INVALID_PARAMS
+    assert "'tpo'" in error["message"]
+    assert "it takes path, top" in error["message"]
