@@ -739,10 +739,10 @@ class ReconServer:
         payload = asdict(report)
         for key in ("core_modules", "entry_points", "most_called"):
             payload[key] = payload.get(key, [])[:LIST_LIMIT]
-        for key in ("unresolved_sample", "out_of_scope_sample"):
-            # [name, count] pairs, as the schema says: a tuple survives asdict and is
-            # only a list once JSON has touched it, which is too late for a client
-            # reading the in-process result.
+        for key in ("unresolved_sample", "out_of_scope_sample", "parse_errors"):
+            # Pairs, as the schema says: a tuple survives asdict and is only a list
+            # once JSON has touched it, which is too late for a client reading the
+            # in-process result - and a real validator over the same payload says so.
             payload[key] = [list(pair) for pair in payload.get(key, [])[:LIST_LIMIT]]
         return payload
 

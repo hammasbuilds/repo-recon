@@ -869,3 +869,24 @@ def test_an_argument_no_tool_takes_is_refused():
     assert error["code"] == INVALID_PARAMS
     assert "'tpo'" in error["message"]
     assert "it takes path, top" in error["message"]
+
+
+def test_every_pair_on_the_wire_is_a_list_not_a_tuple(tmp_path: Path):
+    """`asdict` keeps a tuple a tuple, and the schema says array.
+
+    JSON turns it into a list eventually, which is why this survived — but a client
+    reading the in-process result, and any validator run against the payload, sees a
+    tuple. Found by a real JSON Schema validator over the same payloads the hand-rolled
+    checker walks; `parse_errors` was the last one.
+    """
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ok.py").write_text("def f(xs):\n    return len(xs)\n", encoding="utf-8")
+    (pkg / "broken.py").write_text("def nope(:\n", encoding="utf-8")
+
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    for key in ("parse_errors", "unresolved_sample", "out_of_scope_sample"):
+        for item in out[key]:
+            assert isinstance(item, list), (key, type(item).__name__)
+    assert any("broken.py" in pair[0] for pair in out["parse_errors"])
