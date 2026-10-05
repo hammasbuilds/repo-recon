@@ -276,3 +276,24 @@ def test_review_diff_runs_against_a_real_commit(tmp_path: Path):
 
     result = review_diff(repo, "HEAD~1")
     assert result.confirmed == 1
+
+
+def test_the_no_newline_marker_is_not_a_line():
+    """ "\ No newline at end of file" annotates the line before it and belongs to
+    neither side. Counted as context, it shifted every later added line by one and
+    attributed findings to code the change did not touch."""
+    from reporecon.reviewbot.review import added_lines
+
+    diff = (
+        "--- a/f.py\n+++ b/f.py\n@@ -1,2 +1,2 @@\n-old\n\ No newline at end of file\n+new\n tail\n"
+    )
+    assert added_lines(diff) == {"f.py": {1}}
+
+
+def test_an_added_line_whose_content_starts_with_plus_is_still_added():
+    """`+++x` on the wire is a line of content `++x`. Skipped as a file header, it
+    dropped a real added line and left the counter out of step for the rest."""
+    from reporecon.reviewbot.review import added_lines
+
+    diff = "--- a/f.py\n+++ b/f.py\n@@ -1,0 +1,2 @@\n+++x\n+y\n"
+    assert added_lines(diff) == {"f.py": {1, 2}}

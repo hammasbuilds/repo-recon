@@ -37,6 +37,7 @@ that cannot change behaviour from one that can, because a tool that reports both
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import sys
@@ -418,8 +419,21 @@ TOOLS: list[dict[str, Any]] = [
                     "required": ["line", "rule"],
                 },
             },
+            "parse_error": {
+                "type": "string",
+                "description": "Empty when the file parsed. When it is not, nothing was "
+                "reviewed, and the three counts above are zero for that reason rather "
+                "than because the file is clean.",
+            },
         },
-        output_required=["confirmed", "findings", "path", "proposed", "retracted"],
+        output_required=[
+            "confirmed",
+            "findings",
+            "parse_error",
+            "path",
+            "proposed",
+            "retracted",
+        ],
     ),
     _tool(
         "release_readiness",
@@ -726,9 +740,16 @@ class ReconServer:
         if symbol in graph.by_qualname:
             resolved = symbol
         else:
-            matches = sorted(
-                q for q in graph.by_qualname if q.endswith(f".{symbol}") or symbol in q
-            )
+            # An exact tail match first: `helper` means the definition called helper,
+            # not every qualname containing the letters. The bare substring made any
+            # short name ambiguous with its own longer neighbours - one `helper` and
+            # one `helper_extended` were reported as two candidates for `helper` - and
+            # every short name is a prefix of something. The substring remains as a
+            # fallback, where nothing matched exactly, because `Class.method` typed as
+            # `method` should still find it.
+            matches = sorted(q for q in graph.by_qualname if q.endswith(f".{symbol}"))
+            if not matches:
+                matches = sorted(q for q in graph.by_qualname if symbol in q)
             if not matches:
                 return {
                     "symbol": symbol,
@@ -819,6 +840,12 @@ class ReconServer:
 
     def review_diff(self, arguments: dict) -> dict:
         path = _resolve(arguments.get("path"), want="file")
+        if path.suffix not in {".py", ".pyi"}:
+            # Pointed at a README, this reported "0 proposed, 0 confirmed, 0 retracted"
+            # - indistinguishable from a clean Python file, and a one-line markdown
+            # file parses as Python because the line is a comment. These checks are
+            # Python checks; anything else is a wrong argument, not a clean result.
+            raise ToolError(f"{path.name} is not a Python file; these checks read Python")
         diff = _string(arguments, "diff", limit=DIFF_LIMIT)
 
         changed: set[int] | None = None
@@ -848,7 +875,18 @@ class ReconServer:
                 # to remove.
                 changed = set()
 
-        file_review = review_source(str(path), _read(path), changed)
+        source = _read(path)
+        # A file that does not parse proposes nothing, and "0 proposed, 0 confirmed,
+        # 0 retracted" is exactly what a clean file looks like. check_modernisation gets
+        # this right and its own schema says why: a scan that found nothing in a
+        # repository that does not compile is not a clean scan.
+        parse_error = ""
+        try:
+            ast.parse(source)
+        except SyntaxError as exc:
+            parse_error = f"line {exc.lineno}: {exc.msg}"
+
+        file_review = review_source(str(path), source, changed)
         findings = [
             {
                 "line": verdict.proposal.line,
@@ -864,6 +902,7 @@ class ReconServer:
             "confirmed": len(file_review.confirmed),
             "retracted": len(file_review.verdicts) - len(file_review.confirmed),
             "findings": findings[:LIST_LIMIT],
+            "parse_error": parse_error,
         }
 
     def release_readiness(self, arguments: dict) -> dict:

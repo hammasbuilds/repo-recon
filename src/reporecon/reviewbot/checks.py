@@ -60,15 +60,21 @@ class _Proposer(ast.NodeVisitor):
     # -- mutable default arguments ---------------------------------------
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
-        for default in [*node.args.defaults, *[d for d in node.args.kw_defaults if d]]:
+        # The parameter each default belongs to, carried on the proposal. The verifier
+        # used to re-derive it from the line number, so `def f(a=[], b=[])` gave every
+        # proposal the FIRST parameter: the genuine bug on `b` was retracted with
+        # "the default is never mutated inside f()", a false statement about the code,
+        # and the mirror case confirmed two findings where one was real.
+        for arg, default in _defaults_with_parameters(node):
             if isinstance(default, (ast.List, ast.Dict, ast.Set)):
                 self._add(
                     default,
                     "mutable-default",
-                    f"{type(default).__name__.lower()} used as a default argument in "
-                    f"{node.name}(); it is created once and shared between calls",
+                    f"{type(default).__name__.lower()} used as the default for "
+                    f"{arg}= in {node.name}(); it is created once and shared between calls",
                     "bug",
                     function=node.name,
+                    parameter=arg,
                 )
             elif isinstance(default, ast.Call):
                 name = getattr(default.func, "id", None) or getattr(default.func, "attr", "")
@@ -76,10 +82,11 @@ class _Proposer(ast.NodeVisitor):
                     self._add(
                         default,
                         "mutable-default",
-                        f"{name}() as a default argument in {node.name}(); evaluated "
+                        f"{name}() as the default for {arg}= in {node.name}(); evaluated "
                         f"once at definition, not per call",
                         "bug",
                         function=node.name,
+                        parameter=arg,
                     )
 
         self.function_stack.append(node)
@@ -180,6 +187,24 @@ class _Proposer(ast.NodeVisitor):
             "smell",
         )
         self.generic_visit(node)
+
+
+def _defaults_with_parameters(node: ast.AST) -> list[tuple[str, ast.expr]]:
+    """(parameter name, default expression) pairs, positional then keyword-only."""
+    args = node.args
+    positional = [*args.posonlyargs, *args.args]
+    pairs = [
+        (arg.arg, default)
+        for arg, default in zip(
+            positional[len(positional) - len(args.defaults) :], args.defaults, strict=False
+        )
+    ]
+    pairs += [
+        (arg.arg, default)
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False)
+        if default is not None
+    ]
+    return pairs
 
 
 def propose(source: str) -> list[Proposal]:

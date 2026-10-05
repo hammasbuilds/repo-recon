@@ -113,7 +113,16 @@ def added_lines(diff: str) -> dict[str, set[int]]:
             continue
         if current is None:
             continue
-        if raw.startswith("+") and not raw.startswith("+++"):
+        if raw.startswith("\\"):
+            # "\ No newline at end of file" annotates the line before it and is not a
+            # line of either side. Counted as context, it shifted every later added
+            # line by one and attributed findings to code the change did not touch.
+            continue
+        if raw.startswith("+"):
+            # Not `not raw.startswith("+++")`: an added line whose own content starts
+            # with "++" is "+++x" on the wire, and skipping it dropped a real added
+            # line AND left the counter out of step. The file header was already
+            # consumed above, so by here a leading "+" is an added line, full stop.
             out[current].add(line_number)
             line_number += 1
         elif raw.startswith("-"):

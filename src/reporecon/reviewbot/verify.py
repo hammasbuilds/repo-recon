@@ -106,7 +106,10 @@ def _defeat_mutable_default(context: FileContext, proposal: Proposal) -> str | N
     if target is None:
         return None
 
-    parameter = _parameter_for_default(target, proposal.line)
+    # From the proposal, which knows; falling back to the line only for a proposal
+    # made before this field existed. Several defaults on one line are indistinguishable
+    # by line, and that is the common case: `def f(a=[], b=[])`.
+    parameter = proposal.evidence.get("parameter") or _parameter_for_default(target, proposal.line)
     if parameter is None:
         return None
 

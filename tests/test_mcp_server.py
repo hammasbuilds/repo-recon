@@ -741,3 +741,53 @@ def test_a_gitfile_pointing_outside_the_root_is_refused(tmp_path: Path, monkeypa
         with pytest.raises(ToolError) as caught:
             getattr(server, tool)({"path": str(confined), "last": 5})
         assert "outside" in str(caught.value), tool
+
+
+def test_a_file_that_does_not_parse_is_not_reported_as_clean(tmp_path: Path):
+    """ "0 proposed, 0 confirmed, 0 retracted" is exactly what a clean file looks like.
+
+    `propose` swallows the SyntaxError and returns [], and review_diff had no channel
+    to say so — while its sibling `check_modernisation` reports parse errors and its
+    schema explains why: a scan that found nothing in code that does not compile is
+    not a clean scan.
+    """
+    broken = tmp_path / "broken.py"
+    broken.write_text("def broken(:\n", encoding="utf-8")
+    out = ReconServer().review_diff({"path": str(broken)})
+    assert out["proposed"] == 0
+    assert "invalid syntax" in out["parse_error"]
+
+    clean = tmp_path / "clean.py"
+    clean.write_text("def f():\n    return 1\n", encoding="utf-8")
+    assert ReconServer().review_diff({"path": str(clean)})["parse_error"] == ""
+
+
+def test_a_file_that_is_not_python_is_a_wrong_argument(tmp_path: Path):
+    """A one-line markdown file parses as Python, because the line is a comment."""
+    readme = tmp_path / "README.md"
+    readme.write_text("# Title\n\nSome prose.\n", encoding="utf-8")
+    with pytest.raises(ToolError) as caught:
+        ReconServer().review_diff({"path": str(readme)})
+    assert "not a Python file" in str(caught.value)
+
+
+def test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour(tmp_path: Path):
+    """`q.endswith(f".{symbol}") or symbol in q` — the second clause is a substring
+    test, and every short name is a prefix of something."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "mod.py").write_text(
+        "def helper():\n    return 1\n\n\n"
+        "def helper_extended():\n    return 2\n\n\n"
+        "def caller():\n    helper()\n",
+        encoding="utf-8",
+    )
+    server = ReconServer()
+    out = server.trace_impact({"path": str(tmp_path), "symbol": "helper"})
+    assert out["resolved"] == "pkg.mod.helper"
+    assert out["candidates"] == []
+    assert (
+        server.trace_impact({"path": str(tmp_path), "symbol": "helper_extended"})["resolved"]
+        == "pkg.mod.helper_extended"
+    )
