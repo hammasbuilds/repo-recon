@@ -63,7 +63,7 @@ reported anywhere, because it is not readable.
 **Out:**
 
 ```
-$ captain gate D:\github\mcp-lab --since 8
+$ captain gate ~/code/mcp-lab --since 8
 
 ==============================================================================
   mcp-lab  -  NO-GO
@@ -93,7 +93,7 @@ Also:
 ```
 $ captain explain <repo> <sha>     # the factor breakdown behind one score
 $ captain rank <repo> --by churn   # or files, spread, risk - see them disagree
-$ captain compare D:\github        # the agreement table above
+$ captain compare ~/code        # the agreement table above
 $ captain gate <repo> --strict     # exit 1 when blocked, for CI
 ```
 
@@ -148,7 +148,7 @@ and a parser, against a dependency that wraps the same command. The web view is 
 ```bash
 uv run pytest -q                        # 35 tests
 uv run captain gate <repo> --since 8
-uv run captain compare D:\github
+uv run captain compare ~/code
 uv run python ui/serve.py               # web view on :8090
 ```
 

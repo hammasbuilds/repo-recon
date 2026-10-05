@@ -31,7 +31,7 @@ in this tool. Both are reported.
 **Out:**
 
 ```
-$ cartographer map D:\github\rag-forge
+$ cartographer map ~/code/rag-forge
 
 ==============================================================================
   rag-forge  -  34 modules, 128 definitions, 2,071 lines
@@ -64,8 +64,8 @@ $ cartographer map D:\github\rag-forge
 Also:
 
 ```
-$ cartographer impact D:\github\rag-forge get_settings   # blast radius of a change
-$ cartographer compare D:\github                         # every checkout under a folder
+$ cartographer impact ~/code/rag-forge get_settings   # blast radius of a change
+$ cartographer compare ~/code                         # every checkout under a folder
 $ cartographer map <repo> --json -o map.json             # for the UI
 ```
 

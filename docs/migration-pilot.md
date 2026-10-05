@@ -67,7 +67,7 @@ the corpus is already modern. The ratio is suggestive, not established. The
 that never will, each with the source text it would replace.
 
 ```
-$ migration-pilot scan D:\github --verbose
+$ migration-pilot scan ~/code --verbose
 
 pallets__flask-4045\src\flask\sessions.py
   [REVIEW] line   273  utcnow-deprecated
@@ -149,7 +149,7 @@ matters. Only the Vue front end needs npm.
 ```bash
 uv run pytest -q                        # 25 tests
 uv run python scripts/prove_utcnow.py   # the demonstration
-uv run migration-pilot scan D:\github
+uv run migration-pilot scan ~/code
 uv run migration-pilot rules
 uv run python ui/server.py              # then: cd ui && npm install && npm run dev
 ```
