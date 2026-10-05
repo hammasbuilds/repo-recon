@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import textwrap
 from pathlib import Path
 
@@ -152,7 +153,8 @@ def test_call_through_a_package_reexport_resolves(tmp_path: Path):
     assert graph.resolution.repo_resolution_rate == pytest.approx(1.0)
 
 
-REAL_REPO = Path(r"D:\github\langchain-lab")
+REPOS_ROOT = Path(os.environ.get("REPOS_ROOT") or Path.home() / "code").expanduser()
+REAL_REPO = REPOS_ROOT / "langchain-llm"
 
 
 @pytest.mark.skipif(not REAL_REPO.exists(), reason="local checkout not present")
