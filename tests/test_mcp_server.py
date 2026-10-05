@@ -890,3 +890,58 @@ def test_every_pair_on_the_wire_is_a_list_not_a_tuple(tmp_path: Path):
         for item in out[key]:
             assert isinstance(item, list), (key, type(item).__name__)
     assert any("broken.py" in pair[0] for pair in out["parse_errors"])
+
+
+# --- the schemas, under a real validator ------------------------------------------------
+#
+# `_check_against_schema` above is enough JSON Schema to prove the declared shape is the
+# shape returned, written out because the package has no dependencies. It cannot check
+# the schemas themselves, and it is an approximation of a specification - so a real
+# validator is run beside it, as a development dependency rather than a runtime one.
+# It earned its place immediately: it found `parse_errors` arriving as tuples where the
+# schema says array, which the hand-rolled walker had no reason to notice.
+
+jsonschema = pytest.importorskip("jsonschema", reason="dev dependency; see [dependency-groups]")
+
+
+@pytest.mark.parametrize("tool", TOOLS, ids=lambda t: t["name"])
+@pytest.mark.parametrize("which", ["inputSchema", "outputSchema"])
+def test_the_declared_schemas_are_valid_json_schema(tool, which):
+    """A schema that is not valid JSON Schema is a schema no client can use."""
+    schema = tool.get(which)
+    assert schema is not None, f"{tool['name']} declares no {which}"
+    jsonschema.Draft202012Validator.check_schema(schema)
+
+
+def test_every_output_validates_under_a_real_validator(tmp_path: Path):
+    """Success, refusal and parse-error paths, against the schema each tool advertises."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "m.py").write_text(
+        "from typing import List\n\n\ndef f(xs: List[int]):\n    return len(xs)\n",
+        encoding="utf-8",
+    )
+    (pkg / "broken.py").write_text("def nope(:\n", encoding="utf-8")
+
+    here = str(Path(__file__).resolve().parents[1])
+    cases = [
+        ("map_repo", {"path": here}),
+        ("map_repo", {"path": str(tmp_path)}),
+        ("trace_impact", {"path": here, "symbol": "build_graph"}),
+        ("trace_impact", {"path": here, "symbol": "no_such_symbol_anywhere"}),
+        ("check_modernisation", {"path": str(tmp_path)}),
+        ("review_diff", {"path": str(pkg / "m.py")}),
+        ("review_diff", {"path": str(pkg / "broken.py")}),
+        ("release_readiness", {"path": here, "last": 20}),
+        ("riskiest_commits", {"path": here, "last": 20, "limit": 3}),
+    ]
+    schemas = {tool["name"]: tool["outputSchema"] for tool in TOOLS}
+    server = ReconServer()
+    problems = []
+    for name, arguments in cases:
+        payload = getattr(server, name)(arguments)
+        for error in jsonschema.Draft202012Validator(schemas[name]).iter_errors(payload):
+            where = ".".join(str(p) for p in error.path) or "<root>"
+            problems.append(f"{name}.{where}: {error.message}")
+    assert problems == []

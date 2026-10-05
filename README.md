@@ -84,7 +84,7 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **28.0%** bind to a
+number means anything. Of the call sites in this repository, **27.8%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
 method on a third-party object — **87.8%** do.
 
@@ -102,9 +102,9 @@ returned, and the tool description says which is which.
 
 map_repo - what is in here
 --------------------------
-33 modules, 430 symbols, 7,665 lines
-call graph: 617 of 703 in-scope calls bound to a definition here (87.8%)
-  the same number over EVERY call site, builtins included: 28.0% - which measures nothing
+33 modules, 432 symbols, 7,720 lines
+call graph: 618 of 704 in-scope calls bound to a definition here (87.8%)
+  the same number over EVERY call site, builtins included: 27.8% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.reviewbot.checks
@@ -136,17 +136,17 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 20 commits
-  pass  source changes without tests: 0 of 14 source-changing commits changed no test file
-  warn  riskiest commit: 55.4 against a median of 32.8 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+verdict: warn over 21 commits
+  pass  source changes without tests: 0 of 15 source-changing commits changed no test file
+  warn  riskiest commit: 55.5 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 2760 lines (20x the 138-line median)
+  warn  commits far above this repo's median: 1 commit(s) over 2680 lines (20x the 134-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 138 lines across 4 files
-   55.4  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.4
+a normal commit here is 134 lines across 4 files
+   55.5  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.5
    54.5  f21541b7  Four readers for an unfamiliar codebase, beh
          files 25.0, spread 20.0, volume 9.5
    42.6  df1063a0  Delete the surface nothing reads, and descri
