@@ -68,3 +68,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # so `pytest` works in a fresh clone, with nothing installed
 pythonpath = ["src"]
 testpaths = ["tests"]
+# An unregistered mark is a no-op with a warning: `-m "not slow"` quietly deselects
+# nothing and the suite looks like it has a fast path it does not have.
+markers = ["slow: runs the review over this whole checkout rather than a fixture"]

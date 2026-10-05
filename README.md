@@ -86,7 +86,7 @@ counts are never added together.
 `map_repo` returns two resolution rates, and which one you read decides whether the
 number means anything. Of the call sites in this repository, **27.0%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.6%** do.
+method on a third-party object — **87.7%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -101,8 +101,8 @@ returned, and the tool description says which is which.
 ```
 map_repo - what is in here
 --------------------------
-30 modules, 380 symbols, 6,336 lines
-call graph: 504 of 575 in-scope calls bound to a definition here (87.6%)
+30 modules, 381 symbols, 6,358 lines
+call graph: 505 of 576 in-scope calls bound to a definition here (87.7%)
   the same number over EVERY call site, builtins included: 27.0% - which measures nothing
 core modules by PageRank over the call graph:
   reporecon.cartographer.parse

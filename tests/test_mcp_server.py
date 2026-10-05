@@ -457,6 +457,30 @@ def test_release_readiness_accepts_the_commit_count_it_advertises(server: ReconS
             server.release_readiness({"path": str(here), "last": bad})
 
 
+def _link_dir(link: Path, target: Path) -> bool:
+    """Make `link` point at the directory `target`. True if it worked.
+
+    A symlink is the portable way and the one this used to use - but on Windows it
+    needs Developer Mode or an elevated account, so on the platform where the bug
+    actually lived the test skipped itself. A junction needs neither, and a junction
+    is what `rglob` followed. Trying the junction second keeps POSIX on symlinks.
+    """
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError):
+        pass
+    if os.name != "nt":
+        return False
+    done = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode == 0 and link.is_dir()
+
+
 def test_a_link_inside_the_root_does_not_reach_outside_it(
     server: ReconServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -472,9 +496,7 @@ def test_a_link_inside_the_root_does_not_reach_outside_it(
     outside = tmp_path / "secret"
     outside.mkdir()
     (outside / "private.py").write_text('PASSWORD = "hunter2"\n', encoding="utf-8")
-    try:
-        (confined / "leak").symlink_to(outside, target_is_directory=True)
-    except (OSError, NotImplementedError):
+    if not _link_dir(confined / "leak", outside):
         pytest.skip("this platform or account cannot create a directory link")
 
     monkeypatch.setenv("REPO_RECON_ROOT", str(confined))
