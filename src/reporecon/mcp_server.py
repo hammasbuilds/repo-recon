@@ -143,6 +143,24 @@ _EDIT = {
     "required": ["path", "line", "rule", "kind"],
 }
 
+_SYMBOL = {
+    "type": "object",
+    "properties": {
+        "qualname": {"type": "string", "description": "Dotted path, module to symbol."},
+        "name": {"type": "string"},
+        "kind": {"type": "string", "enum": ["function", "method", "class"]},
+        "path": {"type": "string", "description": "Repo-relative file."},
+        "line": {"type": "integer", "description": "1-indexed line of the definition."},
+        "fan_in": {
+            "type": "integer",
+            "description": "Call sites in this repository that bind here. Zero means "
+            "nothing in the repository calls it, not that nothing calls it.",
+        },
+        "docstring": {"type": ["string", "null"], "description": "First line only."},
+    },
+    "required": ["qualname", "name", "path"],
+}
+
 TOOLS: list[dict[str, Any]] = [
     _tool(
         "map_repo",
@@ -165,6 +183,11 @@ TOOLS: list[dict[str, Any]] = [
         ["path"],
         output={
             "name": {"type": "string"},
+            "root": {
+                "type": "string",
+                "description": "The directory that was read, resolved. A client that "
+                "passed a relative path or a link needs to know which tree answered.",
+            },
             "modules": {"type": "integer"},
             "symbols": {"type": "integer"},
             "loc": {"type": "integer"},
@@ -190,9 +213,50 @@ TOOLS: list[dict[str, Any]] = [
                 "and none of those could ever bind here. Reported for completeness; read "
                 "repo_resolution_rate instead.",
             },
-            "core_modules": {"type": "array", "items": {"type": "object"}},
-            "entry_points": {"type": "array", "items": {"type": "object"}},
-            "most_called": {"type": "array", "items": {"type": "object"}},
+            "core_modules": {
+                "type": "array",
+                "description": "Ranked by PageRank over the call graph, most central first.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "module": {"type": "string", "description": "Dotted import path."},
+                        "path": {"type": "string", "description": "Repo-relative file."},
+                        "loc": {"type": "integer"},
+                        "symbols": {"type": "integer"},
+                        "importance": {
+                            "type": "number",
+                            "description": "PageRank score over the call graph. Comparable "
+                            "within one result, not between repositories.",
+                        },
+                        "imports": {"type": "array", "items": {"type": "string"}},
+                        "imported_by": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["module", "path"],
+                },
+            },
+            "entry_points": {
+                "type": "array",
+                "description": "Called by nothing in this repository: a CLI, a test "
+                "helper nobody uses, or dead code. Which one is for the reader to say.",
+                "items": _SYMBOL,
+            },
+            "most_called": {
+                "type": "array",
+                "description": "Highest fan-in first. Changing one of these reaches furthest.",
+                "items": _SYMBOL,
+            },
+            "unresolved_sample": {
+                "type": "array",
+                "items": {"type": "array"},
+                "description": "The most frequent call targets that bound to nothing "
+                "here, as [name, count] pairs — the evidence behind the resolution rate.",
+            },
+            "excluded_projects": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Vendored projects with their own pyproject.toml, skipped "
+                "as separate repositories. Their files are missing from everything above.",
+            },
             "parse_errors": {
                 "type": "array",
                 "items": {"type": "array"},
@@ -274,7 +338,20 @@ TOOLS: list[dict[str, Any]] = [
             "by_rule": {"type": "object", "additionalProperties": {"type": "integer"}},
             "rules_available": {"type": "array", "items": {"type": "string"}},
             "edits": {"type": "array", "items": _EDIT},
-            "parse_errors": {"type": "array", "items": {"type": "object"}},
+            "parse_errors": {
+                "type": "array",
+                "description": "Files that did not parse. They are missing from the counts "
+                "above, so a scan that found nothing in a repository that does not compile "
+                "is not a clean scan.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "error": {"type": "string", "description": "The SyntaxError's text."},
+                    },
+                    "required": ["path", "error"],
+                },
+            },
             "truncated": {"type": "boolean"},
         },
         output_required=[
@@ -367,6 +444,16 @@ TOOLS: list[dict[str, Any]] = [
                         "name": {"type": "string"},
                         "status": {"type": "string", "enum": ["pass", "warn", "block"]},
                         "detail": {"type": "string"},
+                        "observed": {
+                            "type": "number",
+                            "description": "What this check measured. The status is this "
+                            "compared with `threshold`, so a caller can disagree with the "
+                            "threshold and still use the number.",
+                        },
+                        "threshold": {
+                            "type": "number",
+                            "description": "The value `observed` had to stay under to pass.",
+                        },
                     },
                     "required": ["name", "status"],
                 },

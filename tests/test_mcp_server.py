@@ -390,6 +390,15 @@ def _check_against_schema(value, schema, path="structuredContent"):
                 _check_against_schema(item, properties[key], f"{path}.{key}")
             elif isinstance(schema.get("additionalProperties"), dict):
                 _check_against_schema(item, schema["additionalProperties"], f"{path}.{key}")
+            elif properties:
+                # Both directions. Walking returned -> declared only lets a tool return
+                # a key its schema never mentions, and a client generating types from
+                # these schemas drops the field without anything failing.
+                #
+                # Only where the schema says what it holds: a bare {"type": "object"}
+                # constrains nothing and claims nothing, so there is no contract to
+                # break. That is its own weakness and is tested separately.
+                raise AssertionError(f"{path}.{key} is returned and not declared")
     if isinstance(value, list) and isinstance(schema.get("items"), dict):
         for index, item in enumerate(value):
             _check_against_schema(item, schema["items"], f"{path}[{index}]")
