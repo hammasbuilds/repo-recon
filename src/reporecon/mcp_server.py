@@ -78,8 +78,10 @@ DIFF_LIMIT = 500_000
 
 INSTRUCTIONS = (
     "Four read-only readers for a Python repository you did not write. Point them at a "
-    "path on this machine; they parse source and return what they read, and none of them "
-    "writes, executes or fetches anything. "
+    "path on this machine; they parse source and return what they read. None of them "
+    "writes a file or opens a network connection. Two of them - release_readiness and "
+    "riskiest_commits - run `git log` and `git diff` in the repository you name, with a "
+    "fixed argument list and no shell, which is the only process any of them starts. "
     "Call map_repo first: it says which modules matter, where the entry points are, and "
     "how much of the call graph resolved. Read repo_resolution_rate, not resolution_rate: "
     "the first is the share of calls that COULD bind here and did, the second counts "
@@ -258,6 +260,11 @@ TOOLS: list[dict[str, Any]] = [
                 "builtins, the standard library, and methods on objects this repository "
                 "does not define. The half of the denominator that can flatter the rate "
                 "by shrinking it, so it is shown rather than described.",
+            },
+            "truncated": {
+                "type": "boolean",
+                "description": "True when the walk stopped at the file limit. Every "
+                "count here is then a floor, not a total.",
             },
             "excluded_projects": {
                 "type": "array",
@@ -552,10 +559,58 @@ class ProtocolError(Exception):
 # ---- argument handling ---------------------------------------------------------------
 
 
+class ConfigError(Exception):
+    """A setting that cannot be honoured. Refuses to start rather than fail open."""
+
+
 def _root() -> Path | None:
-    """The directory every path must sit under, when one is configured."""
+    """The directory every path must sit under, when one is configured.
+
+    An empty or blank value used to mean "no confinement", silently - the one way to
+    set this variable wrong is the one that turns it off, and the startup banner then
+    omitted the "confined to" line that would have shown it. A value that was set and
+    cannot be used is a configuration error, not a default.
+    """
     raw = os.environ.get(ROOT_ENV)
-    return Path(raw).expanduser().resolve() if raw else None
+    if raw is None:
+        return None
+    if not raw.strip():
+        raise ConfigError(
+            f"{ROOT_ENV} is set to an empty value. Unset it to run unconfined, or give "
+            "it a directory; an empty value will not be read as 'no limit'."
+        )
+    root = Path(raw).expanduser().resolve()
+    if not root.is_dir():
+        raise ConfigError(f"{ROOT_ENV} is {raw!r}, which is not a directory.")
+    return root
+
+
+def _confined_repository(root: Path) -> None:
+    """Refuse a checkout whose git directory lives outside the confinement root.
+
+    `.git` is usually a directory, and sometimes a *file* holding `gitdir: <path>` -
+    that is how worktrees and submodules are laid out. `is_repository` only asks
+    whether the entry exists, so a one-line `.git` file placed inside the root pointed
+    git at a repository outside it, and `riskiest_commits` returned that repository's
+    commit subjects, authors and file paths. The path check is on the argument; this
+    is the redirection the argument does not mention.
+    """
+    confine = _root()
+    if confine is None:
+        return
+    marker = root / ".git"
+    if not marker.is_file():
+        return
+    try:
+        text = marker.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return
+    if not text.startswith("gitdir:"):
+        return
+    pointed = Path(text.split(":", 1)[1].strip()).expanduser()
+    pointed = (root / pointed).resolve() if not pointed.is_absolute() else pointed.resolve()
+    if confine not in pointed.parents and pointed != confine:
+        raise ToolError(f"{root}/.git points at {pointed}, which is outside {ROOT_ENV} ({confine})")
 
 
 def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
@@ -567,7 +622,10 @@ def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
     except OSError as exc:
         raise ToolError(f"{value!r}: {exc.strerror or 'cannot be read'}") from None
 
-    confine = _root()
+    try:
+        confine = _root()
+    except ConfigError as exc:
+        raise ToolError(str(exc)) from None
     if confine is not None and confine not in path.parents and path != confine:
         # When the operator sets a root, a path outside it is refused rather than
         # quietly read: this server's whole input is a filesystem path, and that is
@@ -810,6 +868,7 @@ class ReconServer:
 
     def release_readiness(self, arguments: dict) -> dict:
         root = _resolve(arguments.get("path"), want="dir")
+        _confined_repository(root)
         scan = _int(arguments, "scan", 200, 1, 2000)
         # `evaluate(since=...)` is a COUNT of the most recent commits, not a revision.
         # The tool used to advertise "revision or date" and pass the string straight
@@ -832,6 +891,7 @@ class ReconServer:
 
     def riskiest_commits(self, arguments: dict) -> dict:
         root = _resolve(arguments.get("path"), want="dir")
+        _confined_repository(root)
         scan = _int(arguments, "scan", 200, 1, 2000)
         limit = _int(arguments, "limit", 10, 1, 100)
         try:
@@ -1003,7 +1063,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     server = ReconServer()
-    confine = _root()
+    try:
+        confine = _root()
+    except ConfigError as exc:
+        # Before serving, and on stderr: a server that starts unconfined because its
+        # confinement was mis-set is worse than one that does not start.
+        print(f"{SERVER_NAME}: {exc}", file=sys.stderr, flush=True)
+        return 2
     if args.check:
         print(
             json.dumps(

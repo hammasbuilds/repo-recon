@@ -161,12 +161,27 @@ def find_nested_projects(root: Path) -> list[Path]:
     return out
 
 
-def iter_python_files(root: Path) -> tuple[list[Path], list[Path]]:
-    """Every .py file that belongs to this repo.
+#: How many files one walk reads, and how large a file it parses. These lived only in
+#: the MCP server and were applied by two of its six tools, while SECURITY.md said
+#: "two further limits are always on ... so one call cannot walk a whole disk or be
+#: made to read a multi-gigabyte generated module". `map_repo` and `trace_impact` come
+#: through here and had neither. A limit described as always on belongs where the
+#: walking happens, not beside the two callers that remembered it.
+FILE_LIMIT = 4_000
+SOURCE_LIMIT = 2_000_000
 
-    Returns (files, excluded_projects) so the caller can report what was skipped
-    rather than silently shrinking the map.
+
+def iter_python_files(root: Path, limit: int | None = None) -> tuple[list[Path], list[Path], bool]:
+    """Every .py file that belongs to this repo, up to `limit`.
+
+    Returns (files, excluded_projects, truncated) so the caller can report what was
+    skipped rather than silently shrinking the map.
     """
+    # Read at call time, not bound as a default: a default is captured when the
+    # function is defined, so a caller or a test that sets FILE_LIMIT on the module
+    # changes nothing and measures nothing. That exact mistake cost a whole parameter
+    # sweep in a sibling repository.
+    limit = FILE_LIMIT if limit is None else limit
     nested = find_nested_projects(root)
     root = root.resolve()
     out: list[Path] = []
@@ -186,7 +201,8 @@ def iter_python_files(root: Path) -> tuple[list[Path], list[Path]]:
         except OSError:
             continue  # a broken link
         out.append(p)
-    return sorted(out), nested
+    found = sorted(out)
+    return found[:limit], nested, len(found) > limit
 
 
 def _decorator_name(node: ast.expr) -> str:
@@ -421,6 +437,16 @@ def parse_module(path: Path, root: Path, internal_prefixes: frozenset[str]) -> P
         source = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError) as exc:
         return ParsedModule(module=module, path=rel, parse_error=f"unreadable: {exc}")
+    if len(source) > SOURCE_LIMIT:
+        # Recorded as a parse error rather than truncated: half a file parses into a
+        # different program, and a module reported with half its symbols is worse than
+        # one reported as unread.
+        return ParsedModule(
+            module=module,
+            path=rel,
+            loc=source.count("\n") + 1,
+            parse_error=f"{len(source):,} characters; the limit is {SOURCE_LIMIT:,}",
+        )
 
     parsed = ParsedModule(module=module, path=rel, loc=source.count("\n") + 1)
     try:
@@ -468,6 +494,8 @@ class ParsedRepo:
     root: Path
     modules: list[ParsedModule]
     excluded_projects: list[str]  # repo-relative paths of vendored projects
+    #: True when the walk hit FILE_LIMIT, so everything measured from it is a floor.
+    truncated: bool = False
 
     @property
     def symbols(self) -> list[Symbol]:
@@ -481,7 +509,7 @@ class ParsedRepo:
 def parse_repo(root: Path) -> ParsedRepo:
     """Parse every Python file that belongs to this repository."""
     root = root.resolve()
-    files, nested = iter_python_files(root)
+    files, nested, truncated = iter_python_files(root)
     internal = detect_internal_prefixes(root, files)
     with warnings.catch_warnings():
         # Vendored and legacy files raise SyntaxWarning on invalid escapes.
@@ -491,4 +519,5 @@ def parse_repo(root: Path) -> ParsedRepo:
         root=root,
         modules=modules,
         excluded_projects=[d.relative_to(root).as_posix() for d in nested],
+        truncated=truncated,
     )

@@ -61,6 +61,9 @@ class RepoReport:
     entry_points: list[SymbolCard] = field(default_factory=list)
     most_called: list[SymbolCard] = field(default_factory=list)
     #: In scope and unresolved - the gap between the numerator and the denominator.
+    #: True when the walk stopped at FILE_LIMIT. Every count below is then a floor,
+    #: and a reader who is not told cannot know that.
+    truncated: bool = False
     unresolved_sample: list[tuple[str, int]] = field(default_factory=list)
     #: Ruled OUT of the denominator. The other half of the measurement, and the half
     #: that can make a rate look good by shrinking what it is a rate of: a reader who
@@ -129,6 +132,7 @@ def report_from_graph(graph: RepoGraph, top: int = 12) -> RepoReport:
         resolution_rate=round(res.resolution_rate, 4),
         repo_resolution_rate=round(res.repo_resolution_rate, 4),
         excluded_projects=repo.excluded_projects,
+        truncated=repo.truncated,
         parse_errors=repo.parse_errors,
         core_modules=core,
         entry_points=entries,

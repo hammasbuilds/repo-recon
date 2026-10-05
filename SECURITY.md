@@ -26,13 +26,28 @@ read any source file the user can read. That is the point of the tools, and it i
 the whole attack surface.
 
 Set **`REPO_RECON_ROOT`** to the directory you want it confined to. Every path argument
-is resolved and refused if it falls outside, and the refusal names the variable so the
-caller understands why. Without it there is no confinement — which is the right default
-for a developer running it on their own machine, and the wrong one anywhere else.
+is resolved and refused if it falls outside, and so is every file the walk *finds*:
+`rglob` follows directory symlinks and Windows junctions, so each file is re-checked
+against the boundary after resolution. A `.git` file holding `gitdir: <path>` — how
+worktrees and submodules are laid out — is refused when it points outside the root,
+because that redirects git at a repository the path argument never named. Leaving the
+variable unset means no confinement, which is the right default for a developer on
+their own machine and the wrong one anywhere else; setting it to an empty value is a
+configuration error and the server refuses to start, because the one way to set it
+wrong should not be the way that turns it off.
 
-Two further limits are always on: at most 4,000 Python files per call and 2,000,000
-characters per file, so one call cannot walk a whole disk or be made to read a
-multi-gigabyte generated module.
+**What the boundary cannot see: a hard link.** `Path.resolve()` resolves symlinks and
+junctions and does not resolve hard links, so a hard link created *inside* the root to
+a file outside it reads as a file inside the root. That needs write access inside the
+root, which is a different attacker from the one this confinement is for — but it is a
+real hole and the sentence above would otherwise imply it is not.
+
+Two further limits are always on, in `cartographer.parse` where the walking happens, so
+every tool gets them: at most 4,000 Python files per call and 2,000,000 characters per
+file. One call cannot walk a whole disk or be made to read a multi-gigabyte generated
+module. `map_repo` reports `truncated: true` when the first limit fires and records the
+second as a parse error against the file, so a short answer is never mistaken for a
+complete one.
 
 ## What it is not
 

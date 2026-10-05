@@ -1,5 +1,5 @@
 <h1 align="center">repo-recon (Python · AST · MCP server · zero dependencies)</h1>
-<p align="center"><i>Four readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and runs nothing</i></p>
+<p align="center"><i>Four readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and runs only `git log` and `git diff`</i></p>
 
 <!-- mcp-name: io.github.hammasbuilds/repo-recon -->
 
@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.5%** bind to a
+number means anything. Of the call sites in this repository, **27.3%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **86.5%** do.
+method on a third-party object — **86.8%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -101,9 +101,9 @@ returned, and the tool description says which is which.
 ```
 map_repo - what is in here
 --------------------------
-30 modules, 396 symbols, 6,800 lines
-call graph: 539 of 623 in-scope calls bound to a definition here (86.5%)
-  the same number over EVERY call site, builtins included: 27.5% - which measures nothing
+30 modules, 402 symbols, 6,975 lines
+call graph: 552 of 636 in-scope calls bound to a definition here (86.8%)
+  the same number over EVERY call site, builtins included: 27.3% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.cartographer.parse
   reporecon.captain.history

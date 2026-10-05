@@ -29,6 +29,7 @@ from reporecon.mcp_server import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     PROTOCOL_VERSIONS,
+    ROOT_ENV,
     TOOLS,
     ReconServer,
     ToolError,
@@ -665,3 +666,78 @@ def test_both_halves_of_the_denominator_are_shown(tmp_path: Path):
     assert out["in_scope_calls"] == 0
     for pair in out["out_of_scope_sample"]:
         assert isinstance(pair, list), "declared as an array of arrays"
+
+
+# --- the limits SECURITY.md calls "always on" ------------------------------------------
+
+
+def test_the_file_limit_applies_to_the_walking_tools_too(tmp_path: Path, monkeypatch):
+    """SECURITY.md: "Two further limits are always on ... so one call cannot walk a
+    whole disk or be made to read a multi-gigabyte generated module."
+
+    They lived in the MCP server and were applied by two of its six tools.
+    `map_repo` and `trace_impact` go through `parse_repo`, which had no count cap and
+    no size cap - and `map_repo`'s schema had no way to say it had over-read.
+    """
+    from reporecon.cartographer import parse as parse_module
+
+    monkeypatch.setattr(parse_module, "FILE_LIMIT", 5)
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    for n in range(12):
+        (pkg / f"m{n}.py").write_text(f"X{n} = {n}\n", encoding="utf-8")
+
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    assert out["truncated"] is True
+    assert out["modules"] == 5
+
+
+def test_a_file_too_large_to_parse_is_reported_not_read(tmp_path: Path, monkeypatch):
+    from reporecon.cartographer import parse as parse_module
+
+    monkeypatch.setattr(parse_module, "SOURCE_LIMIT", 200)
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "small.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (pkg / "huge.py").write_text("# " + "x" * 500 + "\n", encoding="utf-8")
+
+    out = ReconServer().map_repo({"path": str(tmp_path)})
+    errors = dict(out["parse_errors"])
+    assert "pkg/huge.py" in errors
+    assert "the limit is 200" in errors["pkg/huge.py"]
+    assert out["truncated"] is False  # the count cap was not the one that fired
+
+
+def test_a_blank_confinement_root_refuses_rather_than_runs_unconfined(monkeypatch):
+    """The one way to set this variable wrong was the way that turned it off, and the
+    startup banner then omitted the line that would have shown it."""
+    from reporecon.mcp_server import ConfigError, _root
+
+    for value in ("", "   "):
+        monkeypatch.setenv(ROOT_ENV, value)
+        with pytest.raises(ConfigError):
+            _root()
+
+    monkeypatch.delenv(ROOT_ENV, raising=False)
+    assert _root() is None
+
+
+def test_a_gitfile_pointing_outside_the_root_is_refused(tmp_path: Path, monkeypatch):
+    """`.git` is sometimes a file holding `gitdir: <path>` - that is how worktrees and
+    submodules are laid out. `is_repository` only asked whether the entry existed, so a
+    one-line `.git` file inside the root pointed git at a repository outside it."""
+    outside = tmp_path / "secret"
+    (outside / ".git").mkdir(parents=True)
+    confined = tmp_path / "confined"
+    confined.mkdir()
+    (confined / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    (confined / ".git").write_text(f"gitdir: {outside / '.git'}\n", encoding="utf-8")
+
+    monkeypatch.setenv(ROOT_ENV, str(confined))
+    server = ReconServer()
+    for tool in ("riskiest_commits", "release_readiness"):
+        with pytest.raises(ToolError) as caught:
+            getattr(server, tool)({"path": str(confined), "last": 5})
+        assert "outside" in str(caught.value), tool
