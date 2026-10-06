@@ -223,11 +223,39 @@ def _unquote(path: str) -> str:
         return body
 
 
-def read_history(repo: Path, limit: int | None = None) -> History:
-    """Every commit with its per-file line counts.
+def resolve_revision(repo: Path, rev: str) -> str:
+    """``rev`` as a full commit sha, or ValueError naming what was not found.
+
+    Resolved rather than passed through, because a published figure should record the
+    commit it was measured at and not the branch name that pointed there at the time.
+    """
+    repo = repo.resolve()
+    if not is_repository(repo):
+        raise NotAGitRepository(f"{repo} is not a git repository")
+    try:
+        found = _git(repo, "rev-parse", "--verify", f"{rev}^{{commit}}").strip()
+    except Exception:
+        raise ValueError(f"no such revision in this repository: {rev!r}") from None
+    if not found:
+        raise ValueError(f"no such revision in this repository: {rev!r}")
+    return found
+
+
+def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> History:
+    """Every commit with its per-file line counts, ending at ``rev``.
 
     Merge commits are excluded: their numstat is relative to one parent and
     double-counts work already attributed to the commits being merged.
+
+    ``rev`` exists so a published figure can name the commit it is over. Read from
+    HEAD, every history figure this package produces about its own repository moves on
+    the next commit - including the commit that publishes the figure, which made
+    `demo.py --update-readme` unable to produce a README that matched a fresh run: the
+    count it wrote was one short the moment it was committed, and the test asserting
+    "this block is that command's output" then failed on every subsequent commit.
+
+    A revision makes the measurement reproducible instead of current, which is the
+    only form in which it can be checked.
     """
     repo = repo.resolve()
     if not is_repository(repo):
@@ -235,6 +263,7 @@ def read_history(repo: Path, limit: int | None = None) -> History:
 
     args = [
         "log",
+        rev,
         "--no-merges",
         "--numstat",
         f"--format={_REC}%H{_FLD}%an{_FLD}%aI{_FLD}%s",

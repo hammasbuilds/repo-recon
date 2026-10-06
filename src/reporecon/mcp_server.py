@@ -40,6 +40,7 @@ import argparse
 import ast
 import json
 import os
+import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -47,7 +48,7 @@ from typing import Any, BinaryIO
 
 from . import __version__
 from .captain.gate import evaluate
-from .captain.history import NotAGitRepository, read_history
+from .captain.history import NotAGitRepository, read_history, resolve_revision
 from .captain.risk import Baseline, score_commit
 from .cartographer.graph import build_graph
 from .cartographer.parse import parse_repo
@@ -465,11 +466,24 @@ TOOLS: list[dict[str, Any]] = [
                 "maximum": 2000,
                 "description": "How many commits of history to read. Default 200.",
             },
+            "rev": {
+                "type": "string",
+                "description": "Read history up to this revision - a sha, tag, branch "
+                "or HEAD~n - instead of HEAD. A figure measured at HEAD moves on the "
+                "next commit, so one that is going to be written down should name the "
+                "commit it is over. The answer returns the full sha it resolved to.",
+            },
         },
         ["path"],
         output={
             "repo": {"type": "string"},
             "verdict": {"type": "string", "enum": ["pass", "warn", "block"]},
+            "rev": {
+                "type": "string",
+                "description": "The full sha the history was read up to. Returned "
+                "because a verdict about this commit and one about a commit three "
+                "weeks ago are different claims and read identically without it.",
+            },
             "blocked": {"type": "boolean"},
             "commits_considered": {"type": "integer"},
             "evidence": {
@@ -534,6 +548,13 @@ TOOLS: list[dict[str, Any]] = [
                 "minimum": 1,
                 "maximum": 100,
                 "description": "How many to return. Default 10.",
+            },
+            "rev": {
+                "type": "string",
+                "description": "Read history up to this revision - a sha, tag, branch "
+                "or HEAD~n - instead of HEAD. The riskiest commits of a repository are "
+                "a different set after every push, so a ranking that is going to be "
+                "written down should name the commit it was taken at.",
             },
         },
         ["path"],
@@ -685,6 +706,41 @@ def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
     if want == "file" and not path.is_file():
         raise ToolError(f"{value!r} is not a file")
     return path
+
+
+#: A revision is a name git resolves, not arbitrary text. Letters, digits and the
+#: punctuation a sha, tag, branch or `HEAD~3` uses - nothing that reads as a flag.
+_REVISION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/~^-]{0,200}$")
+
+
+def _rev(arguments: dict, root: Path) -> str:
+    """The revision to read history up to, defaulting to HEAD.
+
+    Resolved against the repository before use, so an unknown revision is a tool error
+    naming it rather than a git diagnostic on stderr and an empty history - which
+    would read as a repository with no commits in it.
+
+    It exists because every history figure this package publishes about its own
+    repository moves on the next commit, including the commit that publishes the
+    figure. `demo.py --update-readme` therefore could not produce a README that
+    matched a fresh run: the commit count it wrote was one short the moment it was
+    committed. A figure that names its revision is reproducible; one that says
+    "currently" is not checkable at all.
+    """
+    value = arguments.get("rev")
+    if value is None:
+        return "HEAD"
+    if not isinstance(value, str):
+        raise ToolError(f"'rev' must be a string, got {type(value).__name__}")
+    value = value.strip()
+    if not value:
+        raise ToolError("'rev' was given but is empty; omit it for HEAD")
+    if not _REVISION.match(value):
+        raise ToolError(f"'rev' is not a revision: {value!r}. A sha, tag, branch or HEAD~n.")
+    try:
+        return resolve_revision(root, value)
+    except (NotAGitRepository, ValueError) as exc:
+        raise ToolError(str(exc)) from None
 
 
 def _int(arguments: dict, name: str, default: int, low: int, high: int) -> int:
@@ -971,8 +1027,9 @@ class ReconServer:
         # could not be used at all, behind a description that said what it did not do.
         last = arguments.get("last")
         last = None if last is None else _int(arguments, "last", 200, 1, 2000)
+        rev = _rev(arguments, root)
         try:
-            history = read_history(root, limit=scan)
+            history = read_history(root, limit=scan, rev=rev)
         except NotAGitRepository as exc:
             raise ToolError(str(exc)) from None
         result = evaluate(history, since=last)
@@ -987,6 +1044,10 @@ class ReconServer:
             "verdict": "block" if result.blocked else ("warn" if result.warnings else "pass"),
             "blocked": result.blocked,
             "commits_considered": result.commits_considered,
+            # What the figures are over. Without it a reader cannot tell a verdict
+            # about this commit from one about a commit three weeks ago, and the two
+            # are different claims.
+            "rev": rev,
             "evidence": result.evidence,
             "checks_measured": len(result.checks) - len(result.not_measured),
             "checks_total": len(result.checks),
@@ -999,8 +1060,9 @@ class ReconServer:
         _confined_repository(root)
         scan = _int(arguments, "scan", 200, 1, 2000)
         limit = _int(arguments, "limit", 10, 1, 100)
+        rev = _rev(arguments, root)
         try:
-            history = read_history(root, limit=scan)
+            history = read_history(root, limit=scan, rev=rev)
         except NotAGitRepository as exc:
             raise ToolError(str(exc)) from None
 

@@ -97,6 +97,28 @@ def main(argv: list[str] | None = None) -> int:
     return code
 
 
+#: The line the published block carries, naming the commit the history figures are
+#: over. Read back out of the README so a re-run reproduces them instead of measuring
+#: a repository that has moved on.
+_PIN = re.compile(r"^  measured at ([0-9a-f]{7,40})$", re.MULTILINE)
+
+
+def _pinned_revision() -> str:
+    """The revision the README's history figures were measured at, or HEAD.
+
+    HEAD on the first run and whenever `--at-head` is passed, which is how the pin is
+    created and how it is moved. Any other run reproduces what is published.
+    """
+    if "--at-head" in sys.argv[1:]:
+        return "HEAD"
+    readme = HERE / "README.md"
+    if readme.is_file():
+        found = _PIN.search(readme.read_text(encoding="utf-8"))
+        if found:
+            return found.group(1)
+    return "HEAD"
+
+
 def _run(server: ReconServer) -> tuple[int, dict]:
     rule("map_repo - what is in here")
     report = server.map_repo({"path": str(HERE), "top": 5})
@@ -147,14 +169,29 @@ def _run(server: ReconServer) -> tuple[int, dict]:
         print(f"  line {finding['line']}: {finding['rule']} - {finding['message']}")
 
     if (HERE / ".git").exists():
+        # The revision the published figures are over, which is NOT HEAD.
+        #
+        # Every history figure here moves on the next commit - including the commit
+        # that publishes it. So `--update-readme` wrote a commit count, the commit
+        # that carried the new README made it one short, and
+        # `test_update_readme_is_idempotent_on_a_current_readme` then failed on every
+        # commit after that. The README could not be correct for longer than it took
+        # to commit it.
+        #
+        # Reading the revision back out of the README makes the measurement
+        # reproducible rather than current: the block says which commit it is over,
+        # and anyone can re-run it and get the same numbers. `--at-head` re-pins it,
+        # deliberately, which is the only time these figures are allowed to change.
+        rev = _pinned_revision()
         rule("release_readiness - scored from the history, not from opinion")
-        gate = server.release_readiness({"path": str(HERE)})
+        gate = server.release_readiness({"path": str(HERE), "rev": rev})
         print(f"verdict: {gate['verdict']} over {gate['commits_considered']} commits")
+        print(f"  measured at {gate['rev'][:12]}")
         for check in gate["checks"]:
             print(f"  {check['status']:5s} {check['name']}: {check['detail']}")
 
         rule("riskiest_commits - with the score's components")
-        risk = server.riskiest_commits({"path": str(HERE), "limit": 3})
+        risk = server.riskiest_commits({"path": str(HERE), "limit": 3, "rev": rev})
         print(
             f"a normal commit here is {risk['median_churn']:.0f} lines across "
             f"{risk['median_files']:.0f} files"

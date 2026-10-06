@@ -130,3 +130,108 @@ def test_update_readme_is_idempotent_on_a_current_readme():
 def test_the_readme_documents_the_command_that_regenerates_it():
     """A remedy nobody can find is not a remedy."""
     assert "--update-readme" in README
+
+
+# -- the published history figures name the commit they are over --------------------
+
+
+def test_the_readme_names_the_revision_its_history_figures_are_over():
+    """Because otherwise they are a claim about whenever anyone last ran the command.
+
+    This tool measures the repository it lives in, so `release_readiness` and
+    `riskiest_commits` move on the next commit - including the commit that publishes
+    them. `demo.py --update-readme` wrote "over 28 commits", the commit carrying that
+    README made it 29, and `test_update_readme_is_idempotent_on_a_current_readme`
+    failed from then on. The README could not be right for longer than it took to
+    commit it, and the test that said so was correct every time.
+
+    The block now carries `measured at <sha>` and the demo reads it back, so a re-run
+    reproduces what is published instead of measuring a repository that has moved on.
+    `--at-head` re-pins, which is the only thing that may change these figures.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    pinned = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE)
+    assert pinned, "the README no longer records the revision its history is over"
+    assert len(pinned.group(1)) >= 12, pinned.group(1)
+
+
+def test_the_pinned_revision_is_a_commit_in_this_repository():
+    """A sha nobody can resolve is not a record of anything. An ancestor of HEAD, so
+    the figures were measured here rather than copied from somewhere else."""
+    import re
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    sha = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE).group(1)
+
+    verified = subprocess.run(
+        ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert verified.returncode == 0, verified.stderr
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert ancestor.returncode == 0, f"{sha} is not an ancestor of HEAD"
+
+
+def test_the_published_commit_count_is_what_that_revision_gives():
+    """The figure, re-derived at the revision it names.
+
+    This is the assertion the old arrangement could not make: with the measurement
+    taken at HEAD the number was right only until the next commit, so nothing could
+    check it. Taken at a named revision it is checkable for as long as the commit
+    exists, which is the whole point of writing the revision down.
+    """
+    import re
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "src"))
+    from reporecon.mcp_server import ReconServer
+
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    sha = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE).group(1)
+    stated = re.search(r"^verdict: (\w+) over (\d+) commits$", readme, re.MULTILINE)
+    assert stated, "the README no longer states the verdict and the commit count"
+
+    result = ReconServer().release_readiness({"path": str(root), "rev": sha})
+    assert result["verdict"] == stated.group(1), (result["verdict"], stated.group(1))
+    assert result["commits_considered"] == int(stated.group(2)), (
+        result["commits_considered"],
+        stated.group(2),
+    )
+    assert result["rev"].startswith(sha), (result["rev"], sha)
+
+
+def test_the_count_at_head_is_allowed_to_differ_and_usually_does():
+    """The thing this arrangement exists to tolerate, asserted rather than assumed.
+
+    If HEAD and the pin ever had to agree, the README would be stale again on the
+    next commit. So the figures are over the pin, HEAD is free to be ahead, and a
+    reader can see which is which because the block says so.
+    """
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "src"))
+    from reporecon.mcp_server import ReconServer
+
+    server = ReconServer()
+    at_head = server.release_readiness({"path": str(root)})
+    assert at_head["rev"], at_head
+    # No assertion that they differ - on the commit that re-pins they are equal. What
+    # must hold is that asking at HEAD is a different question, and the answer says
+    # which commit it answered.
+    assert "rev" in at_head

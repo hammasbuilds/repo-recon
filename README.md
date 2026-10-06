@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **26.4%** bind to a
+number means anything. Of the call sites in this repository, **26.3%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.0%** do.
+method on a third-party object — **87.2%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -103,9 +103,9 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-34 modules, 453 symbols, 8,257 lines
-call graph: 627 of 721 in-scope calls bound to a definition here (87.0%)
-  the same number over EVERY call site, builtins included: 26.4% - which measures nothing
+34 modules, 460 symbols, 8,490 lines
+call graph: 641 of 735 in-scope calls bound to a definition here (87.2%)
+  the same number over EVERY call site, builtins included: 26.3% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.reviewbot.checks
@@ -136,17 +136,18 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 28 commits
-  pass  source changes without tests: 0 of 18 source-changing commits changed no test file
-  warn  riskiest commit: 55.7 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+verdict: warn over 29 commits
+  measured at b9fd5b0eb9a9
+  pass  source changes without tests: 0 of 19 source-changing commits changed no test file
+  warn  riskiest commit: 55.8 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 2 commit(s) over 2400 lines (20x the 120-line median)
+  warn  commits far above this repo's median: 2 commit(s) over 2360 lines (20x the 118-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 120 lines across 4 files
-   55.7  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.7
+a normal commit here is 118 lines across 4 files
+   55.8  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.8
    54.8  f21541b7  Four readers for an unfamiliar codebase, beh
          files 25.0, spread 20.0, volume 9.8
    42.8  df1063a0  Delete the surface nothing reads, and descri
