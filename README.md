@@ -102,7 +102,7 @@ returned, and the tool description says which is which.
 
 map_repo - what is in here
 --------------------------
-34 modules, 442 symbols, 7,921 lines
+34 modules, 442 symbols, 7,926 lines
 call graph: 620 of 708 in-scope calls bound to a definition here (87.6%)
   the same number over EVERY call site, builtins included: 27.2% - which measures nothing
 core modules by PageRank over the import graph:

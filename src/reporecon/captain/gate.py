@@ -23,9 +23,12 @@ BLOCK = "block"
 #: The check ran and had nothing to look at. Not the same as passing: a release with
 #: no source changes was reported as having *cleared* the test-coupling check, and
 #: `release_readiness` handed an agent a clean GO without saying so. Swept over 75
-#: local checkouts at `--since 8`, 17 earn a clean GO and 6 of those 17 rest on this
+#: local checkouts at `since=8`, 12 earn a clean GO and 4 of those 12 rest on this
 #: check seeing nothing - releases of documentation and data, where "no source
-#: shipped untested" is true only because no source shipped.
+#: shipped untested" is true only because no source shipped. (Measured through
+#: THIS gate. The monorepo this was filtered out of has diverged in its checks
+#: and reports 17 and 6 over the same folder, which is why the number is taken
+#: here rather than carried across.)
 NOT_MEASURED = "not measured"
 
 

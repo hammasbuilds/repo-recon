@@ -971,8 +971,8 @@ class ReconServer:
         # A docs-only release used to come back `verdict: "pass"` with a check that had
         # reported PASS on a denominator of zero, and an agent reading the summary had
         # nothing to tell it the clean verdict rested on one fewer observation than it
-        # appeared to. Swept over 75 local checkouts, 6 of the 17 clean GO verdicts are
-        # that case.
+        # appeared to. Swept over 75 local checkouts at `last=8` through this gate,
+        # 4 of the 12 clean verdicts are that case.
         return {
             "repo": result.repo,
             "verdict": "block" if result.blocked else ("warn" if result.warnings else "pass"),

@@ -493,8 +493,10 @@ def test_a_docs_only_release_does_not_report_a_check_it_never_measured(
     The check's denominator was zero - no source changed, so nothing was observed
     about whether source arrives with tests - and an agent reading the summary had
     nothing to tell it the clean verdict rested on one fewer observation than it
-    appeared to. Swept over 75 local checkouts at `last=8`, 17 earn a clean verdict
-    and 6 of those 17 are this case.
+    appeared to. Swept over 75 local checkouts at `last=8` through this gate, 12
+    earn a clean verdict and 4 of those 12 are this case - measured here rather
+    than carried over from the monorepo this was filtered out of, whose checks
+    have diverged and which reports 17 and 6 over the same folder.
     """
     repo = _one_commit_repo(
         tmp_path / "docs", "rewrite the install section", {"README.md": "# guide" + chr(10)}
