@@ -21,8 +21,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install pytest ruff jsonschema
-      - run: ruff check src tests
-      - run: ruff format --check src tests
+      # The whole tree, not `src tests`. `demo.py`, `docs/` and the workflow files
+      # were outside the gate, so a formatting violation in the document that shows
+      # this tool's own sample input sat in `main` through a green CI. The one block
+      # that must stay unformatted - it IS the before-modernisation sample - is
+      # excluded in pyproject, where the exclusion travels with the repository.
+      - run: ruff check .
+      - run: ruff format --check .
       - run: pip install -e .
       - run: pytest -q
       # the installed entry points, as an MCP client would start them

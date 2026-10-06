@@ -70,3 +70,42 @@ def test_every_tool_presents_a_surface_a_client_can_read():
         assert tool["inputSchema"].get("additionalProperties") is False, tool["name"]
         for name, prop in tool["inputSchema"]["properties"].items():
             assert prop.get("description"), f"{tool['name']}.{name} has no description"
+
+
+# -- the lint gate's own scope ------------------------------------------------
+
+
+def test_the_lint_gate_covers_the_whole_tree_not_just_src_and_tests():
+    """A gate narrower than the repository is a gate with a blind spot.
+
+    Both workflows ran `ruff check src tests` and `ruff format --check src tests`, so
+    `demo.py`, `docs/` and the workflow files themselves were outside it. A formatting
+    violation in `docs/migration-pilot.md` - the document that shows this tool's own
+    sample input - sat in `main` with CI green, and was found by running the command
+    the README tells a reader to run rather than the one CI runs.
+
+    The two must be the same command. One block has to stay unformatted because it IS
+    the before-modernisation sample; that is excluded in `pyproject.toml`, where the
+    exclusion travels with the repository instead of living in each caller's memory.
+    """
+    root = Path(__file__).resolve().parents[1]
+    for name in ("ci.yml", "release.yml"):
+        body = (root / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        assert "ruff check ." in body, f"{name}: the lint gate is narrower than the tree"
+        assert "ruff format --check ." in body, f"{name}: the format gate is narrower"
+        assert "ruff check src tests" not in body, f"{name}: the narrow gate is back"
+        assert "ruff format --check src tests" not in body, f"{name}: the narrow gate is back"
+
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    excluded = config["tool"]["ruff"].get("extend-exclude", [])
+    assert excluded == ["docs/migration-pilot.md"], (
+        f"the exclusion list is {excluded}; every entry is a file the gate does not "
+        "read, so it is worth one each"
+    )
+    # And the excluded file still holds the thing it is excluded for. An exclusion
+    # outliving its reason is a hole nobody is watching.
+    sample = (root / excluded[0]).read_text(encoding="utf-8")
+    assert "[1,  2]" in sample, (
+        "the deliberately unformatted sample is gone, so the exclusion has outlived "
+        "its reason and should be removed"
+    )

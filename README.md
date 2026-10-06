@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **26.9%** bind to a
+number means anything. Of the call sites in this repository, **26.2%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.6%** do.
+method on a third-party object — **86.8%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -96,33 +96,33 @@ returned, and the tool description says which is which.
 
 ## Output
 
-`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half is read from this repository's own history and moves with every commit, so take it as a shape rather than as a figure to check:
+`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half is read from this repository's own history and moves with every commit, so take it as a shape rather than as a figure to check.
+
+This tool measures the repository it lives in, so every commit that adds a test moves the symbol and line counts and both resolution rates - and the test asserting the README matches the code fails on the commit that adds a test, correctly. `python demo.py --update-readme` rewrites this block and the two rates above it from one run, so the remedy is a command rather than four figures hand-edited in two places. A separate test re-runs the writer against a current README and fails if it changes anything, which is what makes "this block is that command's output" a checkable claim rather than a promise:
 
 ```
-
 map_repo - what is in here
 --------------------------
-34 modules, 445 symbols, 8,023 lines
-call graph: 624 of 712 in-scope calls bound to a definition here (87.6%)
-  the same number over EVERY call site, builtins included: 26.9% - which measures nothing
+34 modules, 450 symbols, 8,177 lines
+call graph: 620 of 714 in-scope calls bound to a definition here (86.8%)
+  the same number over EVERY call site, builtins included: 26.2% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.reviewbot.checks
   reporecon.cartographer.parse
   reporecon.pilot.rules
-  reporecon.mcp_server
+  reporecon.captain.risk
 entry points - called by nothing in this repository:
-  reporecon.pilot.rules._Visitor.visit_Subscript
-  tests.test_mcp_server.test_a_method_on_a_repo_class_counts_and_resolves
-  tests.cartographer.test_graph.graph
-  reporecon.pilot.rules._Visitor.visit_Call
+  tests.test_mcp_server.test_no_tool_writes_anything_under_the_repository_it_is_given
+  reporecon.mcp_server.ReconServer.check_modernisation
+  reporecon.mcp_server.ReconServer.review_diff
+  reporecon.mcp_server.ReconServer.riskiest_commits
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 24 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 22 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
-  hop_2: demo.main, reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
-  hop_3: demo:<toplevel>
+  hop_2: reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
 
 check_modernisation - and what it would change
 ----------------------------------------------
@@ -136,21 +136,21 @@ review_diff - only what survived a disproof attempt
 
 release_readiness - scored from the history, not from opinion
 -------------------------------------------------------------
-verdict: warn over 23 commits
-  pass  source changes without tests: 0 of 15 source-changing commits changed no test file
-  warn  riskiest commit: 55.5 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+verdict: warn over 27 commits
+  pass  source changes without tests: 0 of 17 source-changing commits changed no test file
+  warn  riskiest commit: 56.0 against a median of 32.1 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 2680 lines (20x the 134-line median)
+  warn  commits far above this repo's median: 2 commit(s) over 2120 lines (20x the 106-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 134 lines across 4 files
-   55.5  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.5
-   54.5  f21541b7  Four readers for an unfamiliar codebase, beh
-         files 25.0, spread 20.0, volume 9.5
-   42.6  df1063a0  Delete the surface nothing reads, and descri
-         spread 20.0, files 16.2, volume 5.4
+a normal commit here is 106 lines across 4 files
+   56.0  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 11.0
+   55.0  f21541b7  Four readers for an unfamiliar codebase, beh
+         files 25.0, spread 20.0, volume 10.0
+   42.9  df1063a0  Delete the surface nothing reads, and descri
+         spread 20.0, files 16.2, volume 5.7
 ```
 
 ## What it will not do

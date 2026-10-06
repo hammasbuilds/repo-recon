@@ -90,3 +90,43 @@ def test_the_readme_promises_only_what_security_md_does():
     for claim in ("No network", "No writes", "No dependencies"):
         assert claim in prose(), f"README dropped {claim!r}"
         assert claim.lower() in security.lower(), f"SECURITY.md dropped {claim!r}"
+
+
+# -- the block is the command's output, byte for byte -------------------------
+
+
+def test_update_readme_is_idempotent_on_a_current_readme():
+    """So "the README block is this command's output" is a checkable statement.
+
+    The two README tests above assert the four numbers. This asserts the whole block:
+    re-running the writer against a current README must find nothing to change. If it
+    rewrites anything, the block differs from the command's stdout somewhere the number
+    checks do not look - a reordered section, a dropped line, an edited comment.
+
+    It also means the remedy for a stale README is one command rather than hand-editing
+    four figures in two places, which is where a transcription error would come from.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("reporecon_demo", root / "demo.py")
+    demo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(demo)
+
+    before = (root / "README.md").read_text(encoding="utf-8")
+    try:
+        assert demo.main(["--update-readme"]) == 0
+        after = (root / "README.md").read_text(encoding="utf-8")
+        assert after == before, (
+            "`python demo.py --update-readme` changed the README, so the block in it is "
+            "not this command's output. Run that command and commit the result."
+        )
+    finally:
+        # Restored whatever happened: a test that leaves the repository edited when it
+        # fails makes the next run's diff unreadable.
+        (root / "README.md").write_text(before, encoding="utf-8")
+
+
+def test_the_readme_documents_the_command_that_regenerates_it():
+    """A remedy nobody can find is not a remedy."""
+    assert "--update-readme" in README

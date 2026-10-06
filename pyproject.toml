@@ -59,6 +59,12 @@ packages = ["src/reporecon"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Python inside Markdown fences is formatted too, and `docs/migration-pilot.md` shows
+# what this tool's own input looks like BEFORE modernisation - a misaligned comment and
+# `[1,  2]` are the sample, so formatting it rewrites the example into its own output.
+# `ruff format .` is the documented command, so the exclusion belongs here rather than
+# in whatever each caller remembers to type.
+extend-exclude = ["docs/migration-pilot.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
