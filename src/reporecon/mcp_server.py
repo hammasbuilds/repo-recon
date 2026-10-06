@@ -654,8 +654,17 @@ def _confined_repository(root: Path) -> None:
 
 
 def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
-    if not isinstance(value, str) or not value.strip():
-        raise ToolError(f"'{name}' must be a non-empty string")
+    # The three cases say three different things. "must be a non-empty string" covered
+    # all of them, so `{"path": 123}` was told the string it sent was empty and
+    # `{"path": ""}` was told nothing about what to put there - a caller correcting
+    # either one is guessing. A model that guesses wrong calls again with the same
+    # argument.
+    if value is None:
+        raise ToolError(f"'{name}' is required: the path to a repository on this machine")
+    if not isinstance(value, str):
+        raise ToolError(f"'{name}' must be a string, got {type(value).__name__}")
+    if not value.strip():
+        raise ToolError(f"'{name}' was given but is empty; it needs a path")
     path = Path(value).expanduser()
     try:
         path = path.resolve(strict=True)
@@ -1130,7 +1139,14 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                 name = params.get("name")
                 arguments = params.get("arguments") or {}
                 if name not in _BY_NAME:
-                    raise ProtocolError(INVALID_PARAMS, f"unknown tool: {name!r}")
+                    # With the alternatives, because the caller is a model that has
+                    # just guessed a name and the cheapest way out of that loop is to
+                    # be told what is actually here. The same reasoning as the
+                    # additionalProperties message below.
+                    raise ProtocolError(
+                        INVALID_PARAMS,
+                        f"unknown tool: {name!r}; one of {', '.join(sorted(_BY_NAME))}",
+                    )
                 if not isinstance(arguments, dict):
                     raise ProtocolError(INVALID_PARAMS, "'arguments' must be an object")
                 # Every input schema says additionalProperties: false, and nothing

@@ -1116,3 +1116,67 @@ def test_the_tools_exercised_above_are_the_tools_that_exist():
         "release_readiness",
         "riskiest_commits",
     }
+
+
+# -- messages that describe the input they got --------------------------------
+
+
+def test_the_three_bad_path_cases_say_three_different_things():
+    """One message covered all of them: "'path' must be a non-empty string".
+
+    So `{"path": 123}` was told the string it sent was empty, and `{"path": ""}` was
+    told nothing about what belongs there. The caller is a model; a message that
+    misdescribes the argument is a message it cannot act on, and it calls again with
+    the same argument.
+    """
+
+    def result(arguments):
+        (reply,) = drive(
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "map_repo", "arguments": arguments},
+                }
+            ]
+        )
+        return reply["result"]
+
+    absent = result({})
+    assert absent["isError"] is True
+    assert absent["content"][0]["text"] == (
+        "'path' is required: the path to a repository on this machine"
+    )
+
+    wrong_type = result({"path": 123})
+    assert wrong_type["isError"] is True
+    assert wrong_type["content"][0]["text"] == "'path' must be a string, got int"
+
+    for blank in ("", "   "):
+        empty = result({"path": blank})
+        assert empty["isError"] is True
+        assert empty["content"][0]["text"] == "'path' was given but is empty; it needs a path"
+
+
+def test_an_unknown_tool_name_comes_back_with_the_names_that_exist():
+    """A model that just guessed a name needs the list, not a restatement of its guess.
+
+    The same reasoning as the `additionalProperties` message, which already names the
+    arguments a tool takes.
+    """
+    (reply,) = drive(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "tools/call",
+                "params": {"name": "map_repos", "arguments": {}},
+            }
+        ]
+    )
+    error = reply["error"]
+    assert error["code"] == -32602
+    assert "unknown tool: 'map_repos'" in error["message"]
+    for name in ("map_repo", "trace_impact", "review_diff", "riskiest_commits"):
+        assert name in error["message"], name
