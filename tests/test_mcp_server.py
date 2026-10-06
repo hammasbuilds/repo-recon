@@ -1019,3 +1019,100 @@ def test_every_output_validates_under_a_real_validator(tmp_path: Path):
             where = ".".join(str(p) for p in error.path) or "<root>"
             problems.append(f"{name}.{where}: {error.message}")
     assert problems == []
+
+
+def _tree_fingerprint(root: Path) -> dict[str, tuple[int, int]]:
+    """Every file under `root` by size and mtime_ns, ignoring caches."""
+    out: dict[str, tuple[int, int]] = {}
+    for found in sorted(root.rglob("*")):
+        if not found.is_file() or "__pycache__" in found.parts:
+            continue
+        stat = found.stat()
+        out[str(found.relative_to(root))] = (stat.st_size, stat.st_mtime_ns)
+    return out
+
+
+def test_no_tool_writes_anything_under_the_repository_it_is_given(tmp_path: Path):
+    """The headline property, proved rather than declared.
+
+    `readOnlyHint: True` on all six tools is an annotation: it tells a client what to
+    expect and enforces nothing. The module docstring says "Nothing is written and
+    nothing is executed", and the only thing asserting it was the annotation saying so.
+
+    This fingerprints every file under a real repository by size and mtime, calls all
+    six tools, and compares. A tool that wrote a cache, a lock or an output file beside
+    the source it read would show up here and nowhere else.
+    """
+    repo = _one_commit_repo(
+        tmp_path / "subject",
+        "add a module and its test",
+        {
+            "src/pkg/__init__.py": "",
+            "src/pkg/core.py": (
+                "from typing import List"
+                + chr(10)
+                + chr(10)
+                + "def run(xs: List[int]) -> int:"
+                + chr(10)
+                + "    assert xs"
+                + chr(10)
+                + "    return sum(xs)"
+                + chr(10)
+            ),
+            "tests/test_core.py": (
+                "from pkg.core import run"
+                + chr(10)
+                + chr(10)
+                + "def test_run():"
+                + chr(10)
+                + "    assert run([1]) == 1"
+                + chr(10)
+            ),
+            "pyproject.toml": "[project]" + chr(10) + 'name = "subject"' + chr(10),
+        },
+    )
+    # `review_diff` reads a Python file and, optionally, the diff that changed it -
+    # it refuses a non-Python path rather than reporting "0 proposed" on a README.
+    unified = (
+        "--- a/src/pkg/core.py\n"
+        "+++ b/src/pkg/core.py\n"
+        "@@ -1,3 +1,4 @@\n"
+        " def run(xs):\n"
+        "+    assert xs\n"
+        "     return sum(xs)\n"
+    )
+
+    before = _tree_fingerprint(repo)
+    assert before, "the fixture repository is empty, so this test would prove nothing"
+
+    server = ReconServer()
+    calls = [
+        ("map_repo", {"path": str(repo)}),
+        ("trace_impact", {"path": str(repo), "symbol": "pkg.core.run"}),
+        ("check_modernisation", {"path": str(repo)}),
+        ("review_diff", {"path": str(repo / "src" / "pkg" / "core.py"), "diff": unified}),
+        ("release_readiness", {"path": str(repo)}),
+        ("riskiest_commits", {"path": str(repo)}),
+    ]
+    assert len(calls) == len(TOOLS), "every tool must be exercised, not most of them"
+    for name, arguments in calls:
+        getattr(server, name)(arguments)
+
+    after = _tree_fingerprint(repo)
+    assert after == before, {
+        "added": sorted(set(after) - set(before)),
+        "removed": sorted(set(before) - set(after)),
+        "changed": sorted(k for k in before.keys() & after.keys() if before[k] != after[k]),
+    }
+
+
+def test_the_tools_exercised_above_are_the_tools_that_exist():
+    """So adding a seventh tool fails this file rather than slipping past it."""
+    assert {tool["name"] for tool in TOOLS} == {
+        "map_repo",
+        "trace_impact",
+        "check_modernisation",
+        "review_diff",
+        "release_readiness",
+        "riskiest_commits",
+    }
