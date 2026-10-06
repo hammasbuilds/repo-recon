@@ -20,6 +20,13 @@ from .risk import Baseline, score_commit
 PASS = "pass"
 WARN = "warn"
 BLOCK = "block"
+#: The check ran and had nothing to look at. Not the same as passing: a release with
+#: no source changes was reported as having *cleared* the test-coupling check, and
+#: `release_readiness` handed an agent a clean GO without saying so. Swept over 75
+#: local checkouts at `--since 8`, 17 earn a clean GO and 6 of those 17 rest on this
+#: check seeing nothing - releases of documentation and data, where "no source
+#: shipped untested" is true only because no source shipped.
+NOT_MEASURED = "not measured"
 
 
 @dataclass
@@ -55,6 +62,22 @@ class GateResult:
         return [c for c in self.checks if c.status == BLOCK]
 
     @property
+    def not_measured(self) -> list[Check]:
+        """Checks that ran and had nothing to look at.
+
+        They do not change the verdict - nothing was wrong, because nothing was seen -
+        but they change how much the verdict is worth, and a caller cannot tell unless
+        the result says so.
+        """
+        return [c for c in self.checks if c.status == NOT_MEASURED]
+
+    @property
+    def evidence(self) -> str:
+        """How many of the checks actually measured something."""
+        measured = len(self.checks) - len(self.not_measured)
+        return f"{measured} of {len(self.checks)} checks measured something"
+
+    @property
     def verdict(self) -> str:
         if self.blocked:
             return "NO-GO"
@@ -62,7 +85,7 @@ class GateResult:
 
 
 #: Severity order, so two bands can be combined by taking the worse of them.
-_RANK = {PASS: 0, WARN: 1, BLOCK: 2}
+_RANK = {PASS: 0, NOT_MEASURED: 0, WARN: 1, BLOCK: 2}
 
 
 def _band(value: float, warn_at: float, block_at: float) -> str:
@@ -119,7 +142,13 @@ def evaluate(
         )
     else:
         result.checks.append(
-            Check("source changes without tests", PASS, "no source changes", 0.0, untested_warn)
+            Check(
+                "source changes without tests",
+                NOT_MEASURED,
+                "no source changes in range, so test coupling was not observed",
+                0.0,
+                untested_warn,
+            )
         )
 
     # 2. The single riskiest commit, judged against this release rather than against a
@@ -191,10 +220,10 @@ def evaluate(
 def render(result: GateResult) -> str:
     w = 78
     out = ["=" * w, f"  {result.repo}  -  {result.verdict}", "=" * w, ""]
-    out.append(f"  {result.commits_considered} commit(s) assessed")
+    out.append(f"  {result.commits_considered} commit(s) assessed; {result.evidence}")
     out.append("")
     out.append("  CHECKS")
-    symbol = {PASS: "ok  ", WARN: "warn", BLOCK: "STOP"}
+    symbol = {PASS: "ok  ", WARN: "warn", BLOCK: "STOP", NOT_MEASURED: " -  "}
     for c in result.checks:
         out.append(f"    [{symbol[c.status]}] {c.name}")
         out.append(f"           {c.detail}")

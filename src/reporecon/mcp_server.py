@@ -472,13 +472,30 @@ TOOLS: list[dict[str, Any]] = [
             "verdict": {"type": "string", "enum": ["pass", "warn", "block"]},
             "blocked": {"type": "boolean"},
             "commits_considered": {"type": "integer"},
+            "evidence": {
+                "type": "string",
+                "description": "How many checks measured something, as a sentence. A "
+                "clean verdict resting on fewer observations is not a stronger one.",
+            },
+            "checks_measured": {"type": "integer"},
+            "checks_total": {"type": "integer"},
+            "not_measured": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Checks that ran and had nothing to look at - a "
+                "docs-only release observes nothing about test coupling. They do not "
+                "change the verdict and they do change what it is worth.",
+            },
             "checks": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string"},
-                        "status": {"type": "string", "enum": ["pass", "warn", "block"]},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pass", "warn", "block", "not measured"],
+                        },
                         "detail": {"type": "string"},
                         "observed": {
                             "type": "number",
@@ -950,11 +967,21 @@ class ReconServer:
         except NotAGitRepository as exc:
             raise ToolError(str(exc)) from None
         result = evaluate(history, since=last)
+        # `evidence` and `not_measured` are in the summary, not only inside `checks`.
+        # A docs-only release used to come back `verdict: "pass"` with a check that had
+        # reported PASS on a denominator of zero, and an agent reading the summary had
+        # nothing to tell it the clean verdict rested on one fewer observation than it
+        # appeared to. Swept over 75 local checkouts, 6 of the 17 clean GO verdicts are
+        # that case.
         return {
             "repo": result.repo,
             "verdict": "block" if result.blocked else ("warn" if result.warnings else "pass"),
             "blocked": result.blocked,
             "commits_considered": result.commits_considered,
+            "evidence": result.evidence,
+            "checks_measured": len(result.checks) - len(result.not_measured),
+            "checks_total": len(result.checks),
+            "not_measured": [check.name for check in result.not_measured],
             "checks": [asdict(check) for check in result.checks],
         }
 

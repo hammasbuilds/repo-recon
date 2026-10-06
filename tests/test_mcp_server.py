@@ -468,6 +468,78 @@ def test_release_readiness_accepts_the_commit_count_it_advertises(server: ReconS
             server.release_readiness({"path": str(here), "last": bad})
 
 
+def _one_commit_repo(root: Path, message: str, files: dict[str, str]) -> Path:
+    """A real git repository with one commit, because the gate reads `git log`."""
+    for rel, text in files.items():
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    for args in (
+        ["init", "-q"],
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "Tester"],
+        ["add", "-A"],
+        ["commit", "-q", "-m", message],
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    return root
+
+
+def test_a_docs_only_release_does_not_report_a_check_it_never_measured(
+    server: ReconServer, tmp_path: Path
+):
+    """It came back `verdict: "pass"` with the test-coupling check reporting PASS.
+
+    The check's denominator was zero - no source changed, so nothing was observed
+    about whether source arrives with tests - and an agent reading the summary had
+    nothing to tell it the clean verdict rested on one fewer observation than it
+    appeared to. Swept over 75 local checkouts at `last=8`, 17 earn a clean verdict
+    and 6 of those 17 are this case.
+    """
+    repo = _one_commit_repo(
+        tmp_path / "docs", "rewrite the install section", {"README.md": "# guide" + chr(10)}
+    )
+    out = server.release_readiness({"path": str(repo)})
+
+    assert out["verdict"] == "pass", "nothing observed is not a failure"
+    assert out["not_measured"] == ["source changes without tests"]
+    assert out["checks_measured"] == out["checks_total"] - 1
+    assert out["evidence"] == "3 of 4 checks measured something"
+
+    coupling = next(c for c in out["checks"] if "without tests" in c["name"])
+    assert coupling["status"] == "not measured"
+    assert coupling["status"] != "pass"
+
+
+def test_a_release_that_touches_source_measures_every_check(server: ReconServer, tmp_path: Path):
+    repo = _one_commit_repo(
+        tmp_path / "src-change",
+        "add a parser and its tests",
+        {
+            "src/pkg/parse.py": "def f():" + chr(10) + "    return 1" + chr(10),
+            "tests/test_parse.py": "def test_f():" + chr(10) + "    assert True" + chr(10),
+        },
+    )
+    out = server.release_readiness({"path": str(repo)})
+
+    assert out["not_measured"] == []
+    assert out["checks_measured"] == out["checks_total"]
+    assert out["evidence"] == "4 of 4 checks measured something"
+
+
+def test_every_status_the_gate_can_return_is_in_the_declared_schema():
+    """`not measured` is a fourth status, and a client validating against the schema
+    would reject a response carrying it if the enum still listed three."""
+    from reporecon.captain.gate import BLOCK, NOT_MEASURED, PASS, WARN
+
+    tool = next(t for t in TOOLS if t["name"] == "release_readiness")
+    check = tool["outputSchema"]["properties"]["checks"]["items"]["properties"]["status"]
+    assert set(check["enum"]) == {PASS, WARN, BLOCK, NOT_MEASURED}
+
+    summary = tool["outputSchema"]["properties"]
+    assert {"evidence", "checks_measured", "checks_total", "not_measured"} <= set(summary)
+
+
 def _link_dir(link: Path, target: Path) -> bool:
     """Make `link` point at the directory `target`. True if it worked.
 
