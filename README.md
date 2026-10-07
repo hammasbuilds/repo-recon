@@ -96,7 +96,7 @@ counts are never added together.
 `map_repo` returns two resolution rates, and which one you read decides whether the
 number means anything. Of the call sites in this repository, **27.0%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **89.0%** do.
+method on a third-party object — **89.1%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -113,8 +113,8 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-45 modules, 549 symbols, 11,222 lines
-call graph: 825 of 927 in-scope calls bound to a definition here (89.0%)
+46 modules, 556 symbols, 11,349 lines
+call graph: 837 of 939 in-scope calls bound to a definition here (89.1%)
   the same number over EVERY call site, builtins included: 27.0% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
@@ -123,14 +123,14 @@ core modules by PageRank over the import graph:
   reporecon.mcp_server
   reporecon.captain.risk
 entry points - called by nothing in this repository:
-  tests.test_mcp_server.test_no_tool_writes_anything_under_the_repository_it_is_given
   reporecon.mcp_server.ReconServer.check_modernisation
   reporecon.mcp_server.ReconServer.review_diff
   reporecon.mcp_server.ReconServer.riskiest_commits
+  reporecon.mcp_server.ReconServer.trace_impact
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 26 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 29 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
   hop_2: reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
 

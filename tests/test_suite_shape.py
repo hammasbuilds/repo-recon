@@ -40,7 +40,7 @@ MODULE_STOPPERS = {"importorskip", "skip", "exit", "fail"}
 
 #: What the suite collects. Pinned because the failure mode is a count that drops while
 #: the line above it still says "passed".
-COLLECTED = 341
+COLLECTED = 346
 
 
 def _module_level_calls(tree: ast.Module) -> list[tuple[str, int]]:

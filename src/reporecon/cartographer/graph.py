@@ -446,16 +446,50 @@ def pagerank(graph: RepoGraph, damping: float = 0.85, iterations: int = 40) -> d
 def entry_points(graph: RepoGraph) -> list[Symbol]:
     """Definitions nothing inside the repo calls - the outside world's doors.
 
-    CLI commands, FastAPI routes, test functions and `main` all land here.
+    CLI commands, framework routes and `main` land here. Test functions do not, any
+    more: pytest calls every one of them by name, so they are entry points in a sense
+    that says nothing about the repository, and the longest test in the suite sat at the
+    top of this list where a reader is looking for the doors into the code.
+
+    What this cannot see is dynamic dispatch. A method reached through
+    `getattr(obj, name)(...)` has no static caller, so it appears here however heavily
+    it is used - and which of a set of such methods appears is decided by whether some
+    test happens to call one by name, which is an accident of test style rather than a
+    fact about the code. That is the honest limit of reading an import graph, and it is
+    why this is a list of candidates rather than a verdict.
     """
     out = []
     for sym in graph.repo.symbols:
-        if graph.fan_in(sym.qualname) > 0 or not sym.is_public:
+        # Calls FROM a test do not make a definition reached, for the same reason a
+        # test is not an entry point: this list is about what the repository's own code
+        # calls. Counting them made which of the six MCP tools appeared here depend on
+        # which ones some test happened to call by name - three were listed and three
+        # were not, of six dispatched identically through `getattr`.
+        callers = [e for e in graph.callers(sym.qualname) if not _is_test_module(e.module)]
+        if callers or not sym.is_public:
             continue
         if sym.kind == "class":
             continue
+        if _is_test_symbol(sym):
+            continue
         out.append(sym)
     return sorted(out, key=lambda s: (-s.span, s.qualname))
+
+
+def _is_test_module(module: str) -> bool:
+    parts = module.split(".")
+    return any(p in ("tests", "test") or p.startswith("test_") for p in parts)
+
+
+def _is_test_symbol(sym: Symbol) -> bool:
+    """A definition pytest collects, rather than one the repository calls."""
+    module = sym.qualname.split(".")
+    return (
+        any(part in ("tests", "test") for part in module[:-1])
+        or module[0].startswith("test_")
+        or any(part.startswith("test_") for part in module[:-1])
+        or module[-1].startswith("test_")
+    )
 
 
 def most_called(graph: RepoGraph, limit: int = 20) -> list[tuple[Symbol, int]]:
