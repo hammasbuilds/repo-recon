@@ -555,15 +555,22 @@ def test_a_docs_only_release_does_not_report_a_check_it_never_measured(
     out = server.release_readiness({"path": str(repo)})
 
     assert out["verdict"] == "pass", "nothing observed is not a failure"
-    # TWO checks have nothing to look at here, not one. The coupling check is the
+    # THREE checks have nothing to look at here, not one. The coupling check is the
     # subject of this test; `riskiest commit` joins it because a release of one commit
     # has no rest-of-release to stand out from - it used to compare the commit's score
-    # against the median of itself and report 1.0x as a measurement.
-    assert out["not_measured"] == ["source changes without tests", "riskiest commit"], out[
-        "not_measured"
-    ]
-    assert out["checks_measured"] == out["checks_total"] - 2
-    assert out["evidence"] == "2 of 4 checks measured something"
+    # against the median of itself and report 1.0x as a measurement - and "commits far
+    # above this repo's median" joins it for the same arithmetic, one layer down: each
+    # commit is compared against 20x the median of these commits, so over one commit
+    # the test is `churn > churn * 20`, which is false whatever the churn is. It
+    # reported `pass`, and a reviewer found it passing on a shallow clone of this
+    # repository against a median of 12,726 lines - its own.
+    assert out["not_measured"] == [
+        "source changes without tests",
+        "riskiest commit",
+        "commits far above this repo's median",
+    ], out["not_measured"]
+    assert out["checks_measured"] == out["checks_total"] - 3
+    assert out["evidence"] == "1 of 4 checks measured something"
 
     coupling = next(c for c in out["checks"] if "without tests" in c["name"])
     assert coupling["status"] == "not measured"
@@ -581,19 +588,22 @@ def test_a_release_that_touches_source_measures_every_check(server: ReconServer,
     )
     out = server.release_readiness({"path": str(repo)})
 
-    # One commit, so the standout comparison has no rest-of-release to compare with
-    # and reports NOT_MEASURED - see
-    # `tests/captain/test_risk.py::test_a_release_of_one_commit_does_not_compare_it_with_itself`.
-    # This asserted `not_measured == []`, which passed only while that check was
-    # dividing a score by itself.
-    assert out["not_measured"] == ["riskiest commit"], out["not_measured"]
-    assert out["checks_measured"] == out["checks_total"] - 1
+    # One commit, so both repo-relative comparisons have nothing to compare against -
+    # see `tests/captain/test_risk.py::test_a_release_of_one_commit_does_not_compare_it
+    # _with_itself`. This asserted `not_measured == []`, which passed only while the
+    # standout check was dividing a score by itself; then it asserted one, which passed
+    # only while the outlier check was testing `churn > churn * 20`.
+    assert out["not_measured"] == [
+        "riskiest commit",
+        "commits far above this repo's median",
+    ], out["not_measured"]
+    assert out["checks_measured"] == out["checks_total"] - 2
 
     # What this test is actually about: source changed and arrived with a test, so the
     # coupling check observed something.
     coupling = next(c for c in out["checks"] if "tests" in c["name"])
     assert coupling["status"] != "not measured", coupling
-    assert out["evidence"] == "3 of 4 checks measured something"
+    assert out["evidence"] == "2 of 4 checks measured something"
 
 
 def test_every_status_the_gate_can_return_is_in_the_declared_schema():
@@ -664,6 +674,17 @@ def test_a_link_inside_the_root_does_not_reach_outside_it(
     assert not any("private" in m for m in modules), modules
     scanned = server.check_modernisation({"path": str(confined)})
     assert scanned["files_scanned"] == 1
+
+    # And the refusal is visible. It was a bare `continue`, so this directory reported
+    # two modules, no parse errors and nothing truncated while holding three files -
+    # the excluded one left no trace at all, and a reader comparing the map against
+    # `ls` had nothing to explain the difference. Reported in its own field rather than
+    # as a module with an error attached: a file the confinement refused is not a
+    # module of this repository, and listing it as one is the leak with a label on it.
+    refused = mapped["refused_paths"]
+    assert refused, mapped
+    assert any("private" in path for path in refused), refused
+    assert not any("private" in card["module"] for card in mapped["core_modules"])
 
 
 def test_a_diff_for_another_file_reports_nothing_about_this_one(server: ReconServer, repo: Path):

@@ -23,6 +23,9 @@ BLOCK = "block"
 #: The check ran and had nothing to look at. Not the same as passing: a release with
 #: no source changes was reported as having *cleared* the test-coupling check, and
 #: `release_readiness` handed an agent a clean GO without saying so. Swept over 75
+#: live checkouts in the author's own folder on 2026-10-04 - the reason this check
+#: exists, not a figure anyone can re-derive, because those repositories have moved
+#: and the sweep names no revision. The behaviour is in the tests instead.
 #: local checkouts at `since=8`, 12 earn a clean GO and 4 of those 12 rest on this
 #: check seeing nothing - releases of documentation and data, where "no source
 #: shipped untested" is true only because no source shipped. (Measured through
@@ -103,9 +106,16 @@ _STANDOUT_MINIMUM = 3
 #: A count was the wrong guard. `_log_scale` returns 0.5 at the median, so in a
 #: homogeneous history volume and files carry no information and every commit scores
 #: the same - ten identical commits report "36.0 against a median of 36.0 (1.0x)" and
-#: pass, at any length. Five per cent admits every real release measured while writing
-#: this (the narrowest of five local repositories at three commits is 0.10, and most
-#: are 0.6 to 0.8) and rejects the uniform ones, which sit at exactly 0.00.
+#: pass, at any length.
+#:
+#: Five per cent, chosen on 2026-10-07 from the spread of five repositories in the
+#: author's own `D:/github` at windows of 1, 3, 5, 10 and 20 commits: the narrowest real
+#: release was 0.10 and most were 0.6 to 0.8, while every uniform fixture sits at exactly
+#: 0.00. That is evidence the threshold is not arbitrary and it is NOT a measurement
+#: anyone can reproduce - those are live checkouts that have moved since, and the
+#: sentence names no revision because there was no single revision to name. What can be
+#: checked is in `tests/captain/test_standout_is_measurable.py`: uniform releases are
+#: withdrawn, a varied one is compared, and the fixtures are in the file.
 _STANDOUT_SPREAD = 0.05
 
 
@@ -137,6 +147,24 @@ def evaluate(
     baseline = Baseline.from_history(history)
     result = GateResult(repo=history.repo, commits_considered=len(commits))
 
+    # A truncated clone has no repository habits to compare a release against: its
+    # commits are the ones that were fetched, and `--depth 1` leaves exactly one,
+    # holding the whole tree. `history.py` says answering "as though the commits that
+    # are missing are not missing" is not acceptable, and returning `shallow: true`
+    # beside four confident checks was annotating rather than answering. Every
+    # repo-relative check is withdrawn; the absolute ones still report.
+    if history.shallow:
+        result.checks.append(
+            Check(
+                "shallow clone",
+                WARN,
+                history.caveat,
+                float(len(commits)),
+                1,
+                unit="count",
+            )
+        )
+
     if not commits:
         result.checks.append(
             Check("nothing to release", BLOCK, "no commits in range", 0, 1, unit="count")
@@ -158,16 +186,26 @@ def evaluate(
     # every question anyone asked about such a repository, permanently, which is not a
     # release decision. It is also a rate over an empty population: the denominator of
     # "did this change bring tests" is the test files that exist.
-    tested_anywhere = any(c.touches_tests for c in history.commits)
+    # The repository's tracked files, not the commits in the window. `history.commits`
+    # IS the scan window - `read_history(repo, limit=scan)` - and `scan` is an argument
+    # a caller passes, so reading it here meant `release_readiness(path, scan=3)` could
+    # decide a repository has no tests because none were touched in three commits, and
+    # turn off the only check in this gate that can BLOCK.
+    #
+    # Falls back to the window when the file list is unavailable, which is the old
+    # behaviour and is still better than treating an unreadable repository as untested.
+    tested_anywhere = bool(history.test_files_tracked) or any(
+        c.touches_tests for c in history.commits
+    )
     source = [c for c in commits if c.touches_source]
     if source and not tested_anywhere:
         result.checks.append(
             Check(
                 "source changes without tests",
                 NOT_MEASURED,
-                f"no test file appears anywhere in the {len(history.commits)} commit(s) "
-                "read, so this release reads 100% untested by construction rather than "
-                "by observation; see the check below",
+                "this repository tracks no test files at all, so this release reads "
+                "100% untested by construction rather than by observation; see the "
+                "check below",
                 1.0,
                 untested_warn,
                 unit="share",
@@ -177,9 +215,9 @@ def evaluate(
             Check(
                 "no tests in this repository",
                 WARN,
-                f"no test file appears in any of the {len(history.commits)} commit(s) "
-                "read. That is worth knowing and it is not a judgement of this release: "
-                "it is the same on every release this repository will have",
+                "`git ls-files` reports no test file in this repository. That is worth "
+                "knowing and it is not a judgement of this release: it is the same on "
+                "every release this repository will have",
                 1.0,
                 1,
                 unit="count",
@@ -203,7 +241,11 @@ def evaluate(
             Check(
                 "source changes without tests",
                 NOT_MEASURED,
-                "no source changes in range, so test coupling was not observed",
+                (
+                    "every commit in range is documentation, so test coupling was not observed"
+                    if all(c.is_docs_only for c in commits)
+                    else "no source changes in range, so test coupling was not observed"
+                ),
                 0.0,
                 untested_warn,
                 unit="share",
@@ -246,7 +288,12 @@ def evaluate(
     # zero, against which every number is infinitely large; and scores so alike that the
     # ratio is arithmetic rather than evidence.
     cannot_compare: str | None = None
-    if len(scored) < _STANDOUT_MINIMUM:
+    if history.shallow:
+        cannot_compare = (
+            "this is a shallow clone, so the median it would be compared against is the "
+            "median of the commits that happened to be fetched"
+        )
+    elif len(scored) < _STANDOUT_MINIMUM:
         cannot_compare = (
             f"{len(scored)} commit(s) is too few to say whether it stands out from the release"
         )
@@ -267,7 +314,7 @@ def evaluate(
             Check(
                 "riskiest commit",
                 NOT_MEASURED if absolute == PASS else absolute,
-                f"{top_score} - {top_commit.sha[:8]} {top_commit.subject[:60]}; "
+                f"{top_score} - {top_commit.sha[:8]} {_subject(top_commit.subject, 60)}; "
                 f"{cannot_compare}, so only the absolute band was applied",
                 top_score,
                 risk_warn,
@@ -283,7 +330,7 @@ def evaluate(
                 "riskiest commit",
                 verdict,
                 f"{top_score} against a median of {typical:.1f} for this release "
-                f"({ratio:.1f}x) - {top_commit.sha[:8]} {top_commit.subject[:60]}",
+                f"({ratio:.1f}x) - {top_commit.sha[:8]} {_subject(top_commit.subject, 60)}",
                 round(ratio, 2),
                 stands_out_warn,
                 unit="ratio",
@@ -310,24 +357,62 @@ def evaluate(
     # observed value compared with the threshold.
     big = [c for c in commits if c.churn > baseline.median_churn * 20]
     limit = baseline.median_churn * 20
-    result.checks.append(
-        Check(
-            "commits far above this repo's median",
-            WARN if big else PASS,
-            (
-                f"{len(big)} commit(s) over {limit:.0f} lines "
-                f"(20x the {baseline.median_churn:.0f}-line median)"
-                if big
-                else f"none over {limit:.0f} lines (20x the "
-                f"{baseline.median_churn:.0f}-line median)"
-            ),
-            float(len(big)),
-            1,
-            unit="count",
+    # The same question as check 2, asked of the same numbers: can this comparison
+    # distinguish anything? Each commit is compared against 20x the median of these
+    # commits, so over one commit the test is `churn > churn * 20` - false by
+    # construction, and reported as a pass. The guard written for check 2 was not
+    # applied here, which is how a one-commit release and a shallow clone both read
+    # "none over 254,520 lines" and passed.
+    if history.shallow or len(commits) < _STANDOUT_MINIMUM or baseline.median_churn <= 0:
+        result.checks.append(
+            Check(
+                "commits far above this repo's median",
+                NOT_MEASURED,
+                f"{len(commits)} commit(s) with a median of "
+                f"{baseline.median_churn:.0f} lines is too few to say what this "
+                "repository's habits are, and each commit would be compared against "
+                "20x the median of itself",
+                float(len(big)),
+                1,
+                unit="count",
+            )
         )
-    )
+    else:
+        result.checks.append(
+            Check(
+                "commits far above this repo's median",
+                WARN if big else PASS,
+                (
+                    f"{len(big)} commit(s) over {limit:.0f} lines "
+                    f"(20x the {baseline.median_churn:.0f}-line median)"
+                    if big
+                    else f"none over {limit:.0f} lines (20x the "
+                    f"{baseline.median_churn:.0f}-line median)"
+                ),
+                float(len(big)),
+                1,
+                unit="count",
+            )
+        )
 
     return result
+
+
+def _subject(text: str, width: int) -> str:
+    """A commit subject, safe to write to a terminal.
+
+    A commit message is arbitrary bytes, and this is the one place they are handed to a
+    device that interprets them: a `\x07` in a subject rang the bell, and an escape
+    sequence would do whatever the terminal does with it. C0 and C1 controls become
+    U+FFFD, which is what that character is for, and the text is otherwise untouched -
+    the repository really does contain that message and a renderer that rewrote it would
+    be lying about the history.
+
+    JSON output needs none of this: `json.dumps` escapes a control character, and a
+    client that renders the result is responsible for its own terminal.
+    """
+    cleaned = "".join("\ufffd" if ord(c) < 32 or 127 <= ord(c) < 160 else c for c in text)
+    return cleaned[:width]
 
 
 def render(result: GateResult) -> str:
@@ -345,7 +430,7 @@ def render(result: GateResult) -> str:
     for commit, score in result.riskiest[:5]:
         out.append(
             f"    {score:5.1f}  {commit.sha[:8]}  {commit.churn:6d}L "
-            f"{len(commit.files):4d}f {commit.spread}dir  {commit.subject[:44]}"
+            f"{len(commit.files):4d}f {commit.spread}dir  {_subject(commit.subject, 44)}"
         )
     out.append("")
     out.append("=" * w)

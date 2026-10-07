@@ -57,6 +57,11 @@ class RepoReport:
     repo_resolution_rate: float
     excluded_projects: list[str]
     parse_errors: list[tuple[str, str]]
+    #: Repo-relative paths the walk met and refused because they resolve outside
+    #: the root. A directory link pointing out of the tree used to leave no trace
+    #: at all: `modules: 2, parse_errors: [], truncated: false` over a directory
+    #: holding three, with the third read and excluded in silence.
+    refused_paths: list[str] = field(default_factory=list)
     core_modules: list[ModuleCard] = field(default_factory=list)
     entry_points: list[SymbolCard] = field(default_factory=list)
     most_called: list[SymbolCard] = field(default_factory=list)
@@ -132,6 +137,7 @@ def report_from_graph(graph: RepoGraph, top: int = 12) -> RepoReport:
         resolution_rate=round(res.resolution_rate, 4),
         repo_resolution_rate=round(res.repo_resolution_rate, 4),
         excluded_projects=repo.excluded_projects,
+        refused_paths=repo.refused_paths,
         truncated=repo.truncated,
         parse_errors=repo.parse_errors,
         core_modules=core,

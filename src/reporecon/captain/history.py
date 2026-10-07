@@ -159,6 +159,11 @@ class History:
     #: Not a refusal. Asking about a shallow checkout is reasonable; answering as though
     #: the commits that are missing are not missing is not.
     shallow: bool = False
+    #: Test files the repository TRACKS, as `git ls-files` reports them. Distinct from
+    #: "commits in this window that touched a test": the second is a property of the
+    #: window a caller chose, and using it to decide whether the repository has tests
+    #: let `scan=3` turn the gate's only blocking check off.
+    test_files_tracked: int = 0
 
     @property
     def caveat(self) -> str:
@@ -170,10 +175,6 @@ class History:
             "rest of the history was not fetched, so every figure computed against this "
             "repository's own median is computed against a truncated history"
         )
-
-    @property
-    def source_commits(self) -> list[Commit]:
-        return [c for c in self.commits if c.touches_source]
 
 
 def _git(repo: Path, *args: str, timeout: float = 120) -> str:
@@ -231,6 +232,26 @@ def _unquote(path: str) -> str:
         return raw.encode("latin-1").decode("utf-8")
     except (UnicodeDecodeError, UnicodeEncodeError):
         return body
+
+
+def tracked_test_files(repo: Path) -> list[str]:
+    """Test files this repository tracks, now.
+
+    Not "test files touched by the commits we read". That is a different question, and
+    answering the first with the second made the only blocking check in the gate
+    switchable by a caller: `scan=3` on a repository whose tests were committed four
+    commits ago saw no test file, concluded the repository has none, and returned GO
+    where the default scan returns NO-GO.
+
+    `git ls-files` is the file list, so the answer does not depend on how far back
+    anyone looked.
+    """
+    try:
+        listing = _git(repo, "ls-files", "-z")
+    except Exception:  # pragma: no cover - a repository git cannot list
+        return []
+    paths = [p.replace("\\", "/") for p in listing.split("\x00") if p.strip()]
+    return [p for p in paths if FileChange(path=p, added=0, deleted=0).is_test]
 
 
 def is_shallow(repo: Path) -> bool:
@@ -366,4 +387,5 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
         commits=commits,
         git_dir=git_dir(repo),
         shallow=is_shallow(repo),
+        test_files_tracked=len(tracked_test_files(repo)),
     )

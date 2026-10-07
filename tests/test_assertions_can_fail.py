@@ -1,4 +1,12 @@
-"""No test in this suite has an assertion that cannot fail by shape.
+"""No test in this suite has an assertion of the three shapes below.
+
+That is narrower than "no assertion that cannot fail", which is what this docstring
+claimed and what a reviewer measured it against: it caught its three declared shapes and
+missed `assert x or True`, `assert len(x) >= 0`, `assert isinstance(x, object)`,
+`assert set(a) <= set(a)` and `assert x is not None` after `x.attr`. A sweep is a filter
+for the shapes somebody thought of, and claiming it covers the category invites exactly
+the reading that found the gap. The three it does cover were each found in a real test.
+
 
 `test_nothing_is_written_while_the_tools_run` had one: it read
 

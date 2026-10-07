@@ -182,7 +182,7 @@ def test_caches_and_venvs_are_skipped(tmp_path: Path):
     write(tmp_path, "real.py", "def keep(): pass")
     write(tmp_path, ".venv/lib/fake.py", "def drop(): pass")
     write(tmp_path, "__pycache__/cached.py", "def drop2(): pass")
-    files, _, _, _ = iter_python_files(tmp_path)
+    files, _, _, _, _ = iter_python_files(tmp_path)
     assert [f.name for f in files] == ["real.py"]
 
 
@@ -242,7 +242,7 @@ def test_relative_import_in_ordinary_module_targets_the_package(tmp_path: Path):
 
 
 def test_internal_prefixes_exclude_stdlib(repo: Path):
-    files, _, _, _ = iter_python_files(repo)
+    files, _, _, _, _ = iter_python_files(repo)
     prefixes = detect_internal_prefixes(repo, files)
     assert "demo" in prefixes
     assert "json" not in prefixes

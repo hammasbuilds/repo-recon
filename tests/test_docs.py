@@ -74,7 +74,16 @@ def test_the_header_names_the_command_that_is_installed(filename: str):
 @pytest.mark.parametrize("directory", ABSENT)
 def test_the_directories_the_headers_say_are_absent_are_absent(directory: str):
     """If a `ui/` ever appears, the headers become wrong in the other direction."""
-    found = [p for p in ROOT.rglob(directory) if p.is_dir() and ".venv" not in p.parts]
+    # Any directory holding a `pyvenv.cfg` is a virtualenv, whatever it is named. This
+    # excluded `.venv` by exact name, so a reviewer whose environment was `.venv2`
+    # failed on `.venv2/Scripts` - a test failing on an artifact of the machine rather
+    # than on the package, in the file whose subject is claims about the package.
+    venvs = {p.parent for p in ROOT.rglob("pyvenv.cfg")}
+    found = [
+        p
+        for p in ROOT.rglob(directory)
+        if p.is_dir() and not any(v in p.parents or v == p for v in venvs)
+    ]
     assert found == [], f"{directory}/ exists now: {found}"
 
 

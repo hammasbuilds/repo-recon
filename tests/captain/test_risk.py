@@ -243,7 +243,13 @@ def test_a_release_of_one_commit_does_not_compare_it_with_itself():
     assert standout.status == NOT_MEASURED, standout
     assert "too few to say whether it stands out" in standout.detail
     assert "against a median of" not in standout.detail
-    assert [c.name for c in one.not_measured] == ["riskiest commit"]
+    # Two, not one. "Commits far above this repo's median" compares each commit against
+    # 20x the median of these commits, so over one commit it is `churn > churn * 20` -
+    # false by construction, and it used to report `pass`.
+    assert [c.name for c in one.not_measured] == [
+        "riskiest commit",
+        "commits far above this repo's median",
+    ]
 
     # Three commits is enough to HAVE a rest of the release; it is not enough on its
     # own. These three differ by 0.2 of a point, so the ratio is 1.01 - which this test

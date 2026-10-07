@@ -1,5 +1,5 @@
 <h1 align="center">repo-recon (Python · AST · MCP server · zero dependencies)</h1>
-<p align="center"><i>Four readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and runs only `git log` and `git diff`</i></p>
+<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and whose only subprocesses are `git log` and `git rev-parse`</i></p>
 
 <!-- mcp-name: io.github.hammasbuilds/repo-recon -->
 
@@ -96,7 +96,7 @@ counts are never added together.
 `map_repo` returns two resolution rates, and which one you read decides whether the
 number means anything. Of the call sites in this repository, **27.0%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **88.9%** do.
+method on a third-party object — **89.0%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -113,8 +113,8 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-45 modules, 546 symbols, 10,961 lines
-call graph: 814 of 916 in-scope calls bound to a definition here (88.9%)
+45 modules, 549 symbols, 11,222 lines
+call graph: 825 of 927 in-scope calls bound to a definition here (89.0%)
   the same number over EVERY call site, builtins included: 27.0% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
@@ -143,7 +143,7 @@ check_modernisation - and what it would change
 review_diff - only what survived a disproof attempt
 ---------------------------------------------------
 1 proposed, 1 confirmed, 0 retracted
-  line 826: assert-in-source - assert is removed under `python -O`, so this check may not run
+  line 863: assert-in-source - assert is removed under `python -O`, so this check may not run
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
@@ -178,8 +178,12 @@ a normal commit here is 118 lines across 4 files
   not from a client. This line used to read "No writes. Files are opened for reading",
   which was true of the server and false of a command this package installs.
 - **Nothing of yours is executed.** Source is parsed with `ast`; the repository under
-  analysis is never imported. The only subprocesses are two `git` invocations with fixed
-  argument lists.
+  analysis is never imported. Every subprocess the package starts is `git`, from two
+  call sites, with a fixed argument list and `shell=False`. The server runs four of them
+  per history call — `log`, `rev-parse --verify`, `rev-parse --absolute-git-dir` and
+  `rev-parse --is-shallow-repository` — and none at all for `map_repo`, `trace_impact`,
+  `check_modernisation` or `review_diff`. This line said "two `git` invocations", which
+  is the number of call sites in the source and not the number a call makes.
 - **No dependencies.** Standard library only.
 - **It is not a security scanner**, and `review_diff`'s surviving findings are a filter
   on noise rather than a guarantee of correctness.

@@ -2,18 +2,21 @@
 
 ## What this server can and cannot do
 
-- **No network.** None of the four tools opens a socket or makes an outbound request.
+- **No network.** None of the six tools opens a socket or makes an outbound request.
   The server talks to its client over stdin/stdout only.
 - **No writes.** Every tool is read-only (`readOnlyHint: true`). Files are opened for
   reading and nothing is created, modified or deleted. The migration tool *finds* edits
   and does not apply them; `reporecon.pilot.apply` exists for the command line and is
   not reachable through any tool.
 - **Nothing of yours is executed.** Source is parsed with `ast` — no candidate code,
-  no test suite, no import of the repository under analysis. The only subprocesses in
-  the package are two `git` invocations, in `captain/history.py` and
-  `reviewbot/review.py`, each built as a fixed argument list with `shell=False` and a
-  timeout, reading history from the repository you named. Nothing interpolates your
-  input into a command.
+  no test suite, no import of the repository under analysis. Every subprocess the
+  package starts is `git`, from exactly two call sites — `captain/history.py` and
+  `reviewbot/review.py` — each built as a fixed argument list with `shell=False` and a
+  timeout. The server reaches only the first: `log`, `rev-parse --verify`, `rev-parse
+  --absolute-git-dir`, `rev-parse --is-shallow-repository` and `ls-files`, four or five
+  per history call. `git diff` is in the second and is reachable from the `review-bot`
+  command line, not from any tool. Nothing interpolates your input into a command: the
+  path is passed as `-C <path>`, an argument, never as text in a command string.
 - **No secrets.** No API key or token, and the only environment variable read is
   `REPO_RECON_ROOT`.
 - **No dependencies.** Standard library only, so there is no third-party code in the

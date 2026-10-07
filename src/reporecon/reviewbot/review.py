@@ -55,6 +55,15 @@ class Review:
     def retraction_rate(self) -> float:
         return self.retracted / self.proposed if self.proposed else 0.0
 
+    #: Below this many proposals, a percentage says less than the fraction it came
+    #: from. "0 of 1 proposals retracted (0%)" is a rate whose only possible values are
+    #: 0% and 100%, published beside figures measured over hundreds.
+    RATE_NEEDS = 5
+
+    @property
+    def retraction_rate_is_meaningful(self) -> bool:
+        return self.proposed >= self.RATE_NEEDS
+
     def by_rule(self) -> dict[str, tuple[int, int]]:
         out: dict[str, list[int]] = {}
         for file in self.files:
@@ -175,10 +184,10 @@ def review_diff(repo: Path, ref: str = "HEAD~1") -> Review:
 
 def render(review: Review, show_retracted: bool = False) -> str:
     out = ["=" * 78]
+    rate = f" ({review.retraction_rate:.0%})" if review.retraction_rate_is_meaningful else ""
     out.append(
         f"  {review.confirmed} finding(s) to report  -  "
-        f"{review.retracted} of {review.proposed} proposals retracted "
-        f"({review.retraction_rate:.0%})"
+        f"{review.retracted} of {review.proposed} proposals retracted{rate}"
     )
     out.append("=" * 78)
 

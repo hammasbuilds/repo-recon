@@ -1,4 +1,4 @@
-"""Four codebase tools as one MCP server — standard library only.
+"""Six codebase tools as one MCP server — standard library only.
 
     repo-recon-mcp
     python -m reporecon.mcp_server
@@ -51,6 +51,8 @@ from .captain.gate import evaluate
 from .captain.history import NotAGitRepository, read_history, resolve_revision
 from .captain.risk import Baseline, score_commit
 from .cartographer.graph import build_graph
+from .cartographer.parse import FILE_LIMIT as _parse_FILE_LIMIT
+from .cartographer.parse import SOURCE_LIMIT as _parse_SOURCE_LIMIT
 from .cartographer.parse import parse_repo
 from .cartographer.report import build_report, impact_of
 from .pilot.rules import RULE_KIND, scan_source
@@ -97,7 +99,12 @@ INTERNAL_ERROR = -32603
 
 # A repository, not a disk. Walking an unbounded tree is how this becomes a way to
 # read every file on a machine, and how one call takes a minute.
-FILE_LIMIT = 4_000
+#: Re-exported from `cartographer.parse`, which is where the walking happens and
+#: where SECURITY.md says these live. They were defined here as well, with the same
+#: values and nothing tying the copies together: `check_modernisation` read this pair
+#: and `map_repo` read the other, so changing one left the other, under a sentence
+#: saying "every tool gets them".
+FILE_LIMIT = _parse_FILE_LIMIT
 
 #: The longest line this server will parse, in characters. A JSON-RPC message is a
 #: line, and the longest legitimate one here is a `tools/call` with a path and a few
@@ -106,20 +113,39 @@ FILE_LIMIT = 4_000
 #: message, and a 30 KB line of nested brackets ended the process.
 MAX_LINE = 1_000_000
 
+#: Half of a surrogate pair. Legal JSON, not a character, and what a client that
+#: truncates a UTF-16 buffer emits. `json.dumps` escapes it back to the same thing,
+#: so a strict parser rejects the whole frame - which means the reply to a request
+#: the client made is one it cannot read.
+_LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
+
+
+def _printable(value: str) -> str:
+    """`value` with lone surrogates replaced, for putting in a message.
+
+    The caller still sees what it sent - as U+FFFD, which is what that character is
+    for - and the reply is something a client can parse. Replacing rather than
+    refusing, because the request is well formed by every rule the protocol has.
+    """
+    return _LONE_SURROGATE.sub("\ufffd", value)
+
+
 #: The longest a single tool argument may be. `_string` has enforced this since it was
 #: written; `path` went around it, because it is read by `_path` instead.
 ARGUMENT_LIMIT = 4_000
 # Per-file, so one generated module cannot dominate a result.
-SOURCE_LIMIT = 2_000_000
+SOURCE_LIMIT = _parse_SOURCE_LIMIT
 LIST_LIMIT = 200
 DIFF_LIMIT = 500_000
 
 INSTRUCTIONS = (
-    "Four read-only readers for a Python repository you did not write. Point them at a "
+    "Six read-only readers for a Python repository you did not write. Point them at a "
     "path on this machine; they parse source and return what they read. None of them "
     "writes a file or opens a network connection. Two of them - release_readiness and "
-    "riskiest_commits - run `git log` and `git diff` in the repository you name, with a "
-    "fixed argument list and no shell, which is the only process any of them starts. "
+    "riskiest_commits - run `git log` and `git rev-parse` in the repository you name, "
+    "with fixed argument lists and no shell, which are the only processes any of them "
+    "starts; the other four touch no process at all. `review_diff` reads a diff you "
+    "pass it as text and does not produce one. "
     "Call map_repo first: it says which modules matter, where the entry points are, and "
     "how much of the call graph resolved. Read repo_resolution_rate, not resolution_rate: "
     "the first is the share of calls that COULD bind here and did, the second counts "
@@ -309,6 +335,17 @@ TOOLS: list[dict[str, Any]] = [
                 "items": {"type": "string"},
                 "description": "Vendored projects with their own pyproject.toml, skipped "
                 "as separate repositories. Their files are missing from everything above.",
+            },
+            "refused_paths": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Paths the walk met and refused because they resolve "
+                "outside the repository - a directory symlink or a Windows junction "
+                "pointing out of the tree, which under REPO_RECON_ROOT is a file the "
+                "confinement exists to exclude. They are missing from everything above, "
+                "and they used to be missing from this answer too: the exclusion was a "
+                "bare `continue`, so a directory holding three modules reported two with "
+                "no errors and nothing truncated.",
             },
             "parse_errors": {
                 "type": "array",
@@ -922,7 +959,7 @@ def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
     try:
         path = path.resolve(strict=True)
     except OSError as exc:
-        raise ToolError(f"{value!r}: {exc.strerror or 'cannot be read'}") from None
+        raise ToolError(f"{_printable(value)!r}: {exc.strerror or 'cannot be read'}") from None
 
     try:
         confine = _root()
@@ -1275,7 +1312,11 @@ class ReconServer:
         # A docs-only release used to come back `verdict: "pass"` with a check that had
         # reported PASS on a denominator of zero, and an agent reading the summary had
         # nothing to tell it the clean verdict rested on one fewer observation than it
-        # appeared to. Swept over 75 local checkouts at `last=8` through this gate,
+        # appeared to. (The 75-checkout sweep quoted below was taken over the
+        # author's own folder of live repositories and names no revision, so it is the
+        # reason the check exists rather than a figure anyone can re-derive; what is
+        # reproducible is the behaviour, in `tests/test_mcp_server.py`.)
+        # Swept over 75 local checkouts at `last=8` through this gate,
         # 4 of the 12 clean verdicts are that case.
         return {
             "repo": result.repo,
@@ -1380,6 +1421,33 @@ def _error_result(message: str) -> dict:
     return {"content": [{"type": "text", "text": message}], "isError": True}
 
 
+def _bounded_lines(stdin: BinaryIO, limit: int = MAX_LINE + 1):
+    """Lines from `stdin`, reading at most `limit` bytes of any one of them.
+
+    `for raw in stdin` buffers a line of any length: a 60 MB line was read whole and
+    decoded to a 120 MB `str` before `MAX_LINE` refused it. The refusal was correct and
+    the session survived, but nothing bounded the reading, and the comment beside the
+    check said "refused before parsing" - which was true of `json.loads` and not of the
+    work already done.
+
+    The over-long line is returned truncated, so the check downstream still sees
+    something longer than the limit and answers with a parse error naming it. The rest
+    of that line is discarded up to the newline, so the next line is a line and not the
+    tail of this one.
+    """
+    while True:
+        chunk = stdin.readline(limit)
+        if not chunk:
+            return
+        if len(chunk) >= limit and not chunk.endswith(b"\n"):
+            # Too long. Drain to the end of it without keeping any of it.
+            while True:
+                more = stdin.readline(limit)
+                if not more or more.endswith(b"\n"):
+                    break
+        yield chunk
+
+
 def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
     """One request per line until stdin closes."""
     # None until the handshake. It used to start at the NEWEST version, so a
@@ -1393,7 +1461,7 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
         stdout.write((json.dumps(message) + "\n").encode("utf-8"))
         stdout.flush()
 
-    for raw in stdin:
+    for raw in _bounded_lines(stdin):
         line = raw.decode("utf-8", errors="replace").strip()
         if not line:
             continue
@@ -1587,7 +1655,7 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="repo-recon-mcp",
-        description="Four read-only codebase readers as one MCP server over stdio.",
+        description="Six read-only codebase readers as one MCP server over stdio.",
     )
     parser.add_argument(
         "--check",

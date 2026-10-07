@@ -45,6 +45,13 @@ PIN_DRIFT_SHARE = 0.20
 #: At 1,000 commits, 20% is 200 - which is not "a few commits of drift" by any reading.
 PIN_DRIFT_CEILING = 40
 
+#: And a floor, because a share alone is tightest exactly when the repository is
+#: youngest: 20% of 37 commits is 7, so this failed on the eighth commit after a
+#: re-pin - tighter than the fixed 25 it replaced, and failing on the commit that
+#: fixes something else. Re-pinning is deliberate and a few commits between them is
+#: the normal state.
+PIN_DRIFT_FLOOR = 10
+
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
@@ -387,7 +394,7 @@ def test_the_pin_has_not_fallen_far_behind_head():
     )
     assert total.returncode == 0, total.stderr
     history = int(total.stdout.strip())
-    allowed = min(int(history * PIN_DRIFT_SHARE), PIN_DRIFT_CEILING)
+    allowed = min(max(int(history * PIN_DRIFT_SHARE), PIN_DRIFT_FLOOR), PIN_DRIFT_CEILING)
     assert distance <= allowed, (
         f"the published history figures were measured {distance} commits ago, which is "
         f"{distance / history:.0%} of a {history}-commit history and the limit is "

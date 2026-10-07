@@ -193,6 +193,11 @@ def iter_python_files(
     root = root.resolve()
     out: list[Path] = []
     unreadable: list[tuple[Path, str]] = []
+    #: Paths the walk met and refused because they resolve outside the root. Kept apart
+    #: from `unreadable`, which becomes a module with a parse error - a file the
+    #: confinement excluded is not a module of this repository, and reporting it as one
+    #: is the leak itself wearing a label.
+    refused: list[Path] = []
     for p in root.rglob("*.py"):
         if any(part in SKIP_DIRS for part in p.parts):
             continue
@@ -205,6 +210,17 @@ def iter_python_files(
         # this repo only if it is still under the root once resolved.
         try:
             if not p.resolve().is_relative_to(root):
+                # Excluded, and SAID so. This was a bare `continue`, so a file reached
+                # through a junction pointing outside the tree left no trace at all:
+                # `modules: 2, parse_errors: [], truncated: false` over a directory
+                # holding three. The comment four lines down - "a file missing from the
+                # map is the kind of thing the map should say it is missing" - is the
+                # rule, and it was applied to broken links and not to this.
+                #
+                # Reported as unreadable rather than as an error, because that is what
+                # it is from the map's point of view: a path the walk met and did not
+                # read, with the reason.
+                refused.append(p)
                 continue
         except OSError as exc:
             # A broken link, which used to be dropped in silence. A file missing from
@@ -213,7 +229,7 @@ def iter_python_files(
             continue
         out.append(p)
     found = sorted(out)
-    return found[:limit], nested, len(found) > limit, unreadable
+    return found[:limit], nested, len(found) > limit, unreadable, sorted(refused)
 
 
 def _decorator_name(node: ast.expr) -> str:
@@ -512,6 +528,13 @@ class ParsedRepo:
     excluded_projects: list[str]  # repo-relative paths of vendored projects
     #: True when the walk hit FILE_LIMIT, so everything measured from it is a floor.
     truncated: bool = False
+    #: Repo-relative paths the walk met and refused because they resolve outside the
+    #: root - a directory symlink or a Windows junction pointing out of the tree. Kept
+    #: apart from the modules: such a file is not a module of this repository, and
+    #: reporting it as one is the leak the resolve check exists to stop. Kept at all
+    #: because a file missing from the map is the kind of thing the map should say it
+    #: is missing, which is the rule the broken-link branch already followed.
+    refused_paths: list[str] = field(default_factory=list)
 
     @property
     def symbols(self) -> list[Symbol]:
@@ -532,7 +555,7 @@ def _relative(path: Path, root: Path) -> str:
 def parse_repo(root: Path) -> ParsedRepo:
     """Parse every Python file that belongs to this repository."""
     root = root.resolve()
-    files, nested, truncated, unreadable = iter_python_files(root)
+    files, nested, truncated, unreadable, refused = iter_python_files(root)
     internal = detect_internal_prefixes(root, files)
     with warnings.catch_warnings():
         # Vendored and legacy files raise SyntaxWarning on invalid escapes.
@@ -547,4 +570,5 @@ def parse_repo(root: Path) -> ParsedRepo:
         modules=modules,
         excluded_projects=[d.relative_to(root).as_posix() for d in nested],
         truncated=truncated,
+        refused_paths=[_relative(f, root) for f in refused],
     )

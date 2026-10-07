@@ -23,10 +23,6 @@ from dataclasses import dataclass, field
 from .rules import Edit, Scan, scan_source
 
 
-class RewriteRejected(RuntimeError):
-    """The rewritten source did not survive its own checks."""
-
-
 @dataclass
 class Rewrite:
     path: str
