@@ -70,6 +70,16 @@ def test_every_tool_presents_a_surface_a_client_can_read():
         assert tool["inputSchema"].get("additionalProperties") is False, tool["name"]
         for name, prop in tool["inputSchema"]["properties"].items():
             assert prop.get("description"), f"{tool['name']}.{name} has no description"
+        # OUTPUT properties too. This loop covered inputs only, so 27 output fields
+        # carried no description at all - including `mechanical` and `behavioural`,
+        # the two an entire README section is devoted to keeping apart, and `repo`,
+        # which meant a directory name in one tool and an absolute path in another
+        # with nothing anywhere saying which. A client reads the output schema to know
+        # what it is being handed.
+        for name, prop in tool["outputSchema"]["properties"].items():
+            assert prop.get("description"), (
+                f"{tool['name']} returns {name} and the schema does not say what it is"
+            )
 
 
 # -- the lint gate's own scope ------------------------------------------------

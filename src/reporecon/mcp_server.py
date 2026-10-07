@@ -58,6 +58,14 @@ from .reviewbot.review import review_source
 
 # Newest first. A client asking for one of these gets it; anything else gets the newest.
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+#: Asked for work before the protocol version was agreed. The -32000..-32099 range is
+#: reserved for the server to define, and -32002 is what MCP implementations use for
+#: this.
+NOT_INITIALIZED = -32002
+#: The two methods answerable before the handshake: one IS the handshake, and `ping`
+#: has no response shape to negotiate.
+BEFORE_INITIALIZE = ("initialize", "ping")
+
 # structuredContent arrived in 2025-06-18; older clients get the text block only.
 _STRUCTURED = {"2025-11-25", "2025-06-18"}
 
@@ -476,13 +484,28 @@ TOOLS: list[dict[str, Any]] = [
         },
         ["path"],
         output={
-            "repo": {"type": "string"},
+            "repo": {
+                "type": "string",
+                "description": "The repository's directory name. `riskiest_commits` "
+                "returned the full path under the same field name and neither said "
+                "which, so a client joining the two had one key meaning two things.",
+            },
             "verdict": {"type": "string", "enum": ["pass", "warn", "block"]},
             "rev": {
                 "type": "string",
                 "description": "The full sha the history was read up to. Returned "
                 "because a verdict about this commit and one about a commit three "
                 "weeks ago are different claims and read identically without it.",
+            },
+            "git_dir": {
+                "type": "string",
+                "description": "The git directory the commits were read from. "
+                "Not always `<path>/.git`: a `.git` FILE holding "
+                "`gitdir: <elsewhere>` is a worktree or submodule redirect and git "
+                "follows it, so a directory holding one module and such a file "
+                "reports another repository's history. Both tools used to report "
+                "only the name or the path they were given, so the answer was that "
+                "history under this directory's label.",
             },
             "blocked": {"type": "boolean"},
             "commits_considered": {"type": "integer"},
@@ -554,12 +577,35 @@ TOOLS: list[dict[str, Any]] = [
                 "description": "Read history up to this revision - a sha, tag, branch "
                 "or HEAD~n - instead of HEAD. The riskiest commits of a repository are "
                 "a different set after every push, so a ranking that is going to be "
-                "written down should name the commit it was taken at.",
+                "written down should name the commit it was taken at. The answer "
+                "returns the full sha it resolved to.",
             },
         },
         ["path"],
         output={
-            "repo": {"type": "string"},
+            "repo": {
+                "type": "string",
+                "description": "The repository's directory name. This returned the "
+                "absolute path while `release_readiness` returned the name, so one "
+                "field name meant two things and a client joining the two results on "
+                "it matched nothing.",
+            },
+            "rev": {
+                "type": "string",
+                "description": "The full sha the history was read up to. A ranking is "
+                "a different set after every push, and this tool accepted `rev` "
+                "without ever saying which revision it answered.",
+            },
+            "git_dir": {
+                "type": "string",
+                "description": "The git directory the commits were read from. "
+                "Not always `<path>/.git`: a `.git` FILE holding "
+                "`gitdir: <elsewhere>` is a worktree or submodule redirect and git "
+                "follows it, so a directory holding one module and such a file "
+                "reports another repository's history. Both tools used to report "
+                "only the name or the path they were given, so the answer was that "
+                "history under this directory's label.",
+            },
             "commits_considered": {"type": "integer"},
             "median_churn": {
                 "type": "number",
@@ -602,6 +648,111 @@ TOOLS: list[dict[str, Any]] = [
         output_required=["commits", "commits_considered", "median_churn", "repo"],
     ),
 ]
+
+
+#: What each output field means, for the fields declared without a description.
+#:
+#: Applied to `TOOLS` below rather than written into each declaration, because several
+#: of these are nested objects whose `{"type": ...}` sits several lines from the field
+#: name, and a description buried in the middle of one reads worse than a table.
+#: `test_every_tool_presents_a_surface_a_client_can_read` enforced descriptions on
+#: INPUT properties only, which is why 27 output fields had none - including
+#: `mechanical` and `behavioural`, the two an entire README section is devoted to
+#: keeping apart.
+OUTPUT_NOTES: dict[str, dict[str, str]] = {
+    "map_repo": {
+        "name": "The package name from pyproject.toml, or the directory name.",
+        "modules": "Python files parsed. A file that failed to parse is not one.",
+        "symbols": (
+            "Top-level functions, classes and methods defined. Not call sites, and not imports."
+        ),
+        "loc": "Lines in the parsed files, blank and comment lines included.",
+        "total_calls": (
+            "Every call site found, builtins and third-party calls included. The "
+            "denominator of `resolution_rate`, which is the number that measures "
+            "nothing."
+        ),
+        "resolved_calls": (
+            "Call sites bound to a definition in this repository. The numerator of both rates."
+        ),
+    },
+    "trace_impact": {
+        "symbol": "The symbol as asked for, before resolution.",
+    },
+    "check_modernisation": {
+        "files_scanned": "Python files read. The denominator for the two counts below.",
+        "mechanical": (
+            "Edits that are provably equivalent - rewriting `List[int]` to "
+            "`list[int]` changes no behaviour - and so are safe to apply unread. This "
+            "field and `behavioural` are the distinction the whole tool exists to make."
+        ),
+        "behavioural": (
+            "Edits that change what the code does, such as `datetime.utcnow()` to an "
+            "aware `now(UTC)`. Never applied automatically; a reader decides."
+        ),
+        "by_rule": "How many findings each rule produced, by rule name.",
+        "rules_available": (
+            "Every rule this tool can apply, so a caller can see what was looked for "
+            "as well as what was found."
+        ),
+        "edits": "The findings themselves, each with its file, line, rule and kind.",
+        "truncated": (
+            "True when more edits were found than returned, so a short `edits` list "
+            "is not read as a clean tree."
+        ),
+    },
+    "review_diff": {
+        "path": "The repository the diff was reviewed against.",
+        "proposed": (
+            "Findings a rule proposed, before the disproof pass. Reported because the "
+            "gap between this and `confirmed` is what the verifier did."
+        ),
+        "confirmed": (
+            "Findings that survived an attempt to disprove them. The only ones worth acting on."
+        ),
+        "findings": "The confirmed findings, each with its file, line and rule.",
+    },
+    "release_readiness": {
+        "verdict": (
+            "`block` if any check blocks, `warn` if any warns, `pass` otherwise. Over "
+            "the whole read history unless `last` is given - which, as `last` says, is "
+            "an audit rather than a release decision."
+        ),
+        "blocked": "True when at least one check blocks.",
+        "commits_considered": (
+            "Commits the verdict is over. With `last`, the release candidate; without "
+            "it, the whole read history."
+        ),
+        "checks_measured": (
+            "Checks that had something to look at. A clean verdict resting on fewer "
+            "observations is not a stronger one."
+        ),
+        "checks_total": "Checks that ran, measured or not.",
+        "checks": (
+            "Each check with its status, the number behind it and the threshold it "
+            "was compared against, so a verdict can be argued with."
+        ),
+    },
+    "riskiest_commits": {
+        "commits_considered": (
+            "Commits read and scored. The population the medians below are over."
+        ),
+        "median_files": (
+            "Files touched by a median commit here. Risk is scored relative to this "
+            "repository rather than to a fixed baseline."
+        ),
+        "commits": (
+            "The ranked commits, each with the points every factor contributed, so a "
+            "score can be argued with rather than taken."
+        ),
+    },
+}
+
+for _tool in TOOLS:
+    for _field, _note in OUTPUT_NOTES.get(_tool["name"], {}).items():
+        _property = _tool["outputSchema"]["properties"][_field]
+        assert "description" not in _property, f"{_tool['name']}.{_field} is described twice"
+        _property["description"] = _note
 
 
 class ToolError(ValueError):
@@ -729,7 +880,13 @@ def _rev(arguments: dict, root: Path) -> str:
     """
     value = arguments.get("rev")
     if value is None:
-        return "HEAD"
+        # Resolved, not returned as the word. This read `return "HEAD"` - so the
+        # default path, which is every call that omits `rev`, reported the string
+        # "HEAD" in a field whose schema says "The full sha the history was read up
+        # to", while passing `rev: "HEAD"` explicitly gave the sha. Same question,
+        # two answers, and the branch pointer is exactly the "currently" that naming
+        # the revision exists to abolish.
+        value = "HEAD"
     if not isinstance(value, str):
         raise ToolError(f"'rev' must be a string, got {type(value).__name__}")
     value = value.strip()
@@ -1048,6 +1205,8 @@ class ReconServer:
             # about this commit from one about a commit three weeks ago, and the two
             # are different claims.
             "rev": rev,
+            # And WHICH repository they are over, which is not always the one named.
+            "git_dir": history.git_dir,
             "evidence": result.evidence,
             "checks_measured": len(result.checks) - len(result.not_measured),
             "checks_total": len(result.checks),
@@ -1074,7 +1233,18 @@ class ReconServer:
         scored = [(commit, score_commit(commit, baseline)) for commit in history.commits]
         ranked = sorted(scored, key=lambda pair: -pair[1].score())[:limit]
         return {
-            "repo": str(root),
+            # The directory NAME, as `release_readiness` returns - this was
+            # `str(root)`, so one field name meant a name in one tool and an absolute
+            # path in the other, with both schemas declaring it as a bare string and
+            # neither saying which. A client joining the two results on `repo` matched
+            # nothing.
+            "repo": root.name,
+            "git_dir": history.git_dir,
+            # What the ranking is over. A repository's riskiest commits are a
+            # different set after every push, so a ranking that is going to be written
+            # down has to name the commit it was taken at - the same reason
+            # `release_readiness` returns it, which this accepted and never reported.
+            "rev": rev,
             "commits_considered": len(history.commits),
             "median_churn": baseline.median_churn,
             "median_files": baseline.median_files,
@@ -1119,7 +1289,12 @@ def _error_result(message: str) -> dict:
 
 def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
     """One request per line until stdin closes."""
-    protocol = PROTOCOL_VERSIONS[0]
+    # None until the handshake. It used to start at the NEWEST version, so a
+    # `tools/call` arriving cold was answered in full with `structuredContent` -
+    # a shape a 2024 client has no field for - and a `tools/list` advertised
+    # `outputSchema` the same way. The shape is negotiated, so answering before
+    # the negotiation is answering under an assumption the client never made.
+    protocol: str | None = None
 
     def send(message: dict) -> None:
         stdout.write((json.dumps(message) + "\n").encode("utf-8"))
@@ -1182,6 +1357,18 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                 # Missing or non-string: the request is malformed, which is -32600. It
                 # was reported as -32601 "unknown method: None", a different claim.
                 raise ProtocolError(INVALID_REQUEST, "request has no method")
+            # MCP puts the MUST on the client and a SHOULD on the server, and
+            # leniency looked harmless until the shapes were compared: see
+            # `tests/test_mcp_server.py::test_a_tool_call_before_initialize_is_refused`.
+            # The honest outcomes are identical or refused, and silently different was
+            # neither. `ping` has no response shape to negotiate.
+            if method not in BEFORE_INITIALIZE and protocol is None:
+                raise ProtocolError(
+                    NOT_INITIALIZED,
+                    f"{method} before initialize: every result's shape depends on the "
+                    "protocol version, which the initialize handshake agrees. Send "
+                    "initialize first.",
+                )
             if method == "initialize":
                 asked = params.get("protocolVersion")
                 protocol = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]

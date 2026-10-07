@@ -30,6 +30,8 @@ def rule(title: str) -> None:
 #: and the one just above this sentence is a command line.
 _LEAD = "`python demo.py`, which is where every number above comes from."
 _FENCE = "```"
+#: The file `--update-readme` rewrites. Patched by the test that exercises the writer.
+README_PATH = HERE / "README.md"
 
 
 def update_readme(output: str, mapped: dict) -> int:
@@ -41,7 +43,11 @@ def update_readme(output: str, mapped: dict) -> int:
     that adds a test - correctly - and the remedy was to hand-edit four numbers in two
     places by eye, which is a transcription step and so a place to get one wrong.
     """
-    path = HERE / "README.md"
+    # Module-level so a test can point it elsewhere. `HERE` cannot be reused for
+    # that: it is also what the tools are told to measure, so moving it measures the
+    # wrong tree. The only writer in a repository full of read-only tools should be
+    # able to run with nothing at stake.
+    path = README_PATH
     before = path.read_text(encoding="utf-8")
 
     lead = before.find(_LEAD)
@@ -100,7 +106,21 @@ def main(argv: list[str] | None = None) -> int:
 #: The line the published block carries, naming the commit the history figures are
 #: over. Read back out of the README so a re-run reproduces them instead of measuring
 #: a repository that has moved on.
-_PIN = re.compile(r"^  measured at ([0-9a-f]{7,40})$", re.MULTILINE)
+_PIN = re.compile(r"^  measured at ([0-9a-f]{7,40})", re.MULTILINE)
+
+
+def _behind(rev: str) -> int:
+    """How many commits HEAD is ahead of `rev`. Zero on the commit that re-pins."""
+    import subprocess
+
+    done = subprocess.run(
+        ["git", "rev-list", "--count", f"{rev}..HEAD"],
+        cwd=str(HERE),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    return int(done.stdout.strip() or 0) if done.returncode == 0 else -1
 
 
 def _pinned_revision() -> str:
@@ -183,10 +203,19 @@ def _run(server: ReconServer) -> tuple[int, dict]:
         # and anyone can re-run it and get the same numbers. `--at-head` re-pins it,
         # deliberately, which is the only time these figures are allowed to change.
         rev = _pinned_revision()
-        rule("release_readiness - scored from the history, not from opinion")
+        # "audit", not "release". `last` is omitted here, and the tool's own schema
+        # says so: "Omitted, the whole read history is assessed, which is an audit
+        # rather than a release decision." The heading said "release_readiness -
+        # scored from the history, not from opinion" over a verdict about all 29
+        # commits, which is not a release decision about any of them.
+        rule("release_readiness - the whole history audited, not a release decision")
         gate = server.release_readiness({"path": str(HERE), "rev": rev})
         print(f"verdict: {gate['verdict']} over {gate['commits_considered']} commits")
-        print(f"  measured at {gate['rev'][:12]}")
+        # The distance from HEAD, because ancestry alone does not say whether the pin
+        # is still worth reading. Pinned and twenty commits behind looks exactly like
+        # pinned and current, and the suite is green either way - which is the failure
+        # mode this arrangement introduced in exchange for the one it removed.
+        print(f"  measured at {gate['rev'][:12]}, {_behind(gate['rev'])} commit(s) behind HEAD")
         for check in gate["checks"]:
             print(f"  {check['status']:5s} {check['name']}: {check['detail']}")
 

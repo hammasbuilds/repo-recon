@@ -138,6 +138,12 @@ class Commit:
 class History:
     repo: str
     commits: list[Commit]
+    #: The git directory these commits were read from. Not always `repo/.git`: a
+    #: `.git` FILE holding `gitdir: <elsewhere>` is a worktree or submodule redirect
+    #: and git follows it, so a directory holding one module and such a file reports
+    #: another repository's history. Both tools reported only the name or path they
+    #: were given, so the answer was that history under this directory's label.
+    git_dir: str = ""
 
     @property
     def source_commits(self) -> list[Commit]:
@@ -223,6 +229,25 @@ def _unquote(path: str) -> str:
         return body
 
 
+def git_dir(repo: Path) -> str:
+    """The git directory this path really reads, which is not always `repo / ".git"`.
+
+    A `.git` *file* holding `gitdir: <elsewhere>` is a worktree or a submodule
+    redirect, and git follows it. So a directory containing one `m.py` and such a file
+    reports the commits of whatever repository it points at - and both history tools
+    reported only the name or the path they were GIVEN, so the answer was another
+    repository's history labelled with this directory.
+
+    That is not a confinement escape: unconfined, a caller could pass the real path
+    directly. It is a mislabelling, and the fix is to say which git directory was
+    read rather than to guess that it was the obvious one.
+    """
+    repo = repo.resolve()
+    if not is_repository(repo):
+        raise NotAGitRepository(f"{repo} is not a git repository")
+    return _git(repo, "rev-parse", "--absolute-git-dir").strip()
+
+
 def resolve_revision(repo: Path, rev: str) -> str:
     """``rev`` as a full commit sha, or ValueError naming what was not found.
 
@@ -305,4 +330,4 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
 
         commits.append(Commit(sha=sha, author=author, when=when, subject=subject, files=files))
 
-    return History(repo=repo.name, commits=commits)
+    return History(repo=repo.name, commits=commits, git_dir=git_dir(repo))

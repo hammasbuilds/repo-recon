@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from reporecon.captain.gate import BLOCK, PASS, WARN, evaluate
+from reporecon.captain.gate import BLOCK, NOT_MEASURED, PASS, WARN, evaluate
 from reporecon.captain.history import Commit, FileChange, History
 from reporecon.captain.risk import Baseline, rank_by, rank_disagreement, score_commit
 
@@ -163,10 +163,62 @@ def test_an_empty_range_is_blocked_rather_than_passed():
 
 
 def test_every_check_reports_what_it_saw():
-    h = _history([make("a", "x", [("src/a.py", 10, 0), ("tests/t.py", 1, 0)])])
-    for check in evaluate(h).checks:
+    """Over a release with enough commits for every check to have something to look at.
+
+    This ran over ONE commit and asserted every status is PASS, WARN or BLOCK - which
+    passed while the standout check was comparing that commit's score against the
+    median of itself, a ratio of 1.0 by construction. `NOT_MEASURED` is the right
+    answer there and the assertion excluded it, so the test was keeping the
+    self-comparison in place.
+    """
+    commits = [make(str(i), "x", [("src/a.py", 10 + i, 0), ("tests/t.py", 1, 0)]) for i in range(4)]
+    for check in evaluate(_history(commits)).checks:
         assert check.detail
-        assert check.status in (PASS, WARN, BLOCK)
+        assert check.status in (PASS, WARN, BLOCK), check
+
+
+def test_a_release_of_one_commit_does_not_compare_it_with_itself():
+    """`statistics.median` of one score is that score, so the ratio was identically
+    1.0 - reported as "35.9 against a median of 35.9 for this release (1.0x)" under
+    "4 of 4 checks measured something". `last=1` is the most natural call there is for
+    "is this commit safe to ship", and it was the one where the comparison could say
+    nothing."""
+    one = evaluate(_history([make("a", "x", [("src/a.py", 10, 0), ("tests/t.py", 1, 0)])]))
+    standout = next(c for c in one.checks if c.name == "riskiest commit")
+    assert standout.status == NOT_MEASURED, standout
+    assert "too few to say whether it stands out" in standout.detail
+    assert "against a median of" not in standout.detail
+    assert [c.name for c in one.not_measured] == ["riskiest commit"]
+
+    # Three is where it starts saying something.
+    three = evaluate(
+        _history(
+            [make(str(i), "x", [("src/a.py", 10 + i, 0), ("tests/t.py", 1, 0)]) for i in range(3)]
+        )
+    )
+    assert next(c for c in three.checks if c.name == "riskiest commit").status != NOT_MEASURED
+
+
+def test_the_absolute_band_still_fires_on_a_single_alarming_commit():
+    """What is withdrawn is the comparison, not the check. A release of one enormous
+    commit must still be caught, or the fix has traded a meaningless number for a
+    missing one."""
+    # Spread across top-level AREAS is the heaviest factor, so a commit confined to
+    # `src/` saturates around 36 whatever its size - which is why the first version of
+    # this test used 13,000 lines in two files and could not reach the 45-point band.
+    huge = make("big", "huge", [(f"area{i}/m.py", 800, 0) for i in range(6)])
+    result = evaluate(_history([huge]))
+    standout = next(c for c in result.checks if c.name == "riskiest commit")
+    assert standout.status in (WARN, BLOCK), standout
+    assert standout.observed > standout.threshold, standout
+    assert "too few to say" in standout.detail
+
+    # And harder still blocks, so the band is a scale rather than one step.
+    worse = make("big", "huge", [(f"area{i}/m.py", 600, 2000) for i in range(8)])
+    assert (
+        next(c for c in evaluate(_history([worse])).checks if c.name == "riskiest commit").status
+        == BLOCK
+    )
 
 
 def test_strictness_is_relative_to_the_repo_median():

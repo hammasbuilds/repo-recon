@@ -90,6 +90,13 @@ class GateResult:
 #: Severity order, so two bands can be combined by taking the worse of them.
 _RANK = {PASS: 0, NOT_MEASURED: 0, WARN: 1, BLOCK: 2}
 
+#: How many commits the standout comparison needs before it says anything. With one,
+#: the median is the top score and the ratio is 1.0 by construction; with two it is
+#: their mean, so the top is always above it by the same arithmetic. Three is the
+#: smallest number where "stands out from the rest" is a claim about the release
+#: rather than about division.
+_STANDOUT_MINIMUM = 3
+
 
 def _band(value: float, warn_at: float, block_at: float) -> str:
     if value >= block_at:
@@ -167,20 +174,46 @@ def evaluate(
     # is alarming is not passed for being uniformly alarming.
     top_commit, top_score = scored[0]
     typical = statistics.median(score for _, score in scored)
-    ratio = top_score / typical if typical else 1.0
-    standout = _band(ratio, stands_out_warn, stands_out_block)
     absolute = _band(top_score, risk_warn, risk_block)
-    verdict = standout if _RANK[standout] >= _RANK[absolute] else absolute
-    result.checks.append(
-        Check(
-            "riskiest commit",
-            verdict,
-            f"{top_score} against a median of {typical:.1f} for this release "
-            f"({ratio:.1f}x) - {top_commit.sha[:8]} {top_commit.subject[:60]}",
-            round(ratio, 2),
-            stands_out_warn,
+
+    # "Stands out from the rest of the release" needs a rest of the release. With one
+    # or two commits the median IS the top score (or next to it), so the ratio is
+    # identically 1.0 - a number divided by itself, reported as
+    # "35.9 against a median of 35.9 for this release (1.0x)" under
+    # "4 of 4 checks measured something". `last=1` is the most natural call there is
+    # for "is this commit safe to ship", and it was the one where the comparison could
+    # not say anything.
+    #
+    # `NOT_MEASURED` exists in this module for exactly this - "the check ran and had
+    # nothing to look at" - and was not being applied here. The absolute band stays
+    # live, so a single alarming commit is still caught; what is withdrawn is the
+    # comparison, not the check.
+    if len(scored) < _STANDOUT_MINIMUM:
+        result.checks.append(
+            Check(
+                "riskiest commit",
+                NOT_MEASURED if absolute == PASS else absolute,
+                f"{top_score} - {top_commit.sha[:8]} {top_commit.subject[:60]}; "
+                f"{len(scored)} commit(s) is too few to say whether it stands out "
+                f"from the release, so only the absolute band was applied",
+                top_score,
+                risk_warn,
+            )
         )
-    )
+    else:
+        ratio = top_score / typical if typical else 1.0
+        standout = _band(ratio, stands_out_warn, stands_out_block)
+        verdict = standout if _RANK[standout] >= _RANK[absolute] else absolute
+        result.checks.append(
+            Check(
+                "riskiest commit",
+                verdict,
+                f"{top_score} against a median of {typical:.1f} for this release "
+                f"({ratio:.1f}x) - {top_commit.sha[:8]} {top_commit.subject[:60]}",
+                round(ratio, 2),
+                stands_out_warn,
+            )
+        )
 
     # 3. Breadth: a release touching many areas is harder to roll back cleanly.
     areas = {a for c in commits for a in c.areas}

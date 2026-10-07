@@ -5,9 +5,18 @@ wrong one — and the drift is never noticed by the person who caused it, becaus
 README is not the file they were editing. So the numbers that can be recomputed are
 recomputed here, and `demo.py` is where the README's output block comes from.
 
-The git-derived half of that output is deliberately not pinned: commit subjects and risk
-scores move whenever anyone commits, and a test that fails on every commit teaches
-people to ignore it.
+The git-derived half of that output IS pinned, to the revision the block names. This
+docstring said the opposite - "deliberately not pinned: commit subjects and risk scores
+move whenever anyone commits, and a test that fails on every commit teaches people to
+ignore it" - which described the arrangement that was replaced, and the reason it was
+replaced is in that sentence: a figure which fails on every commit is a figure nobody
+can check, so it was both unpinned and unpinnable.
+
+The replacement trades one failure mode for another, so both are watched here. The old
+one was always stale and always failing. The new one is a pin that can freeze
+arbitrarily far behind HEAD with a green suite, which `test_the_pin_has_not_fallen_far_behind_head`
+is for: ancestry alone says the figure was measured here, not that it is still worth
+reading.
 """
 
 from __future__ import annotations
@@ -20,6 +29,13 @@ import pytest
 from reporecon.mcp_server import TOOLS, ReconServer
 
 ROOT = Path(__file__).resolve().parent.parent
+#: How far behind HEAD the published history figures may be before the suite asks
+#: for a re-pin. Generous on purpose: re-pinning is deliberate and a few commits of
+#: drift is the normal state between them. What this catches is a pin nobody has
+#: looked at in a long time, which the old arrangement could not have - it failed
+#: on every commit instead.
+PIN_DRIFT_LIMIT = 25
+
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
@@ -95,7 +111,7 @@ def test_the_readme_promises_only_what_security_md_does():
 # -- the block is the command's output, byte for byte -------------------------
 
 
-def test_update_readme_is_idempotent_on_a_current_readme():
+def test_update_readme_is_idempotent_on_a_current_readme(tmp_path):
     """So "the README block is this command's output" is a checkable statement.
 
     The two README tests above assert the four numbers. This asserts the whole block:
@@ -105,8 +121,20 @@ def test_update_readme_is_idempotent_on_a_current_readme():
 
     It also means the remedy for a stale README is one command rather than hand-editing
     four figures in two places, which is where a transcription error would come from.
+
+    Run against a COPY of the README, not the tracked one. This used to write the real
+    file and restore it in a `finally`, which is the whole project's one writer: every
+    tool here is read-only and says so, `SECURITY.md` makes a point of it, and the
+    thing editing the repository was the test suite. An interrupt or a crash inside
+    the writer left the checkout edited - and a failing run still printed "rewrote the
+    output block and the two rates in README.md", which is alarming in a repository
+    whose claim is that nothing writes.
+
+    `demo.HERE` is where the writer looks, so pointing it at a temp directory holding
+    a copy exercises the same code with nothing at stake.
     """
     import importlib.util
+    import shutil
 
     root = Path(__file__).resolve().parents[1]
     spec = importlib.util.spec_from_file_location("reporecon_demo", root / "demo.py")
@@ -114,17 +142,19 @@ def test_update_readme_is_idempotent_on_a_current_readme():
     spec.loader.exec_module(demo)
 
     before = (root / "README.md").read_text(encoding="utf-8")
-    try:
-        assert demo.main(["--update-readme"]) == 0
-        after = (root / "README.md").read_text(encoding="utf-8")
-        assert after == before, (
-            "`python demo.py --update-readme` changed the README, so the block in it is "
-            "not this command's output. Run that command and commit the result."
-        )
-    finally:
-        # Restored whatever happened: a test that leaves the repository edited when it
-        # fails makes the next run's diff unreadable.
-        (root / "README.md").write_text(before, encoding="utf-8")
+    sandbox = Path(tmp_path) / "readme"
+    sandbox.mkdir()
+    shutil.copy(root / "README.md", sandbox / "README.md")
+    demo.README_PATH = sandbox / "README.md"
+
+    assert demo.main(["--update-readme"]) == 0
+    after = (sandbox / "README.md").read_text(encoding="utf-8")
+    assert after == before, (
+        "`python demo.py --update-readme` changed the README, so the block in it is "
+        "not this command's output. Run that command and commit the result."
+    )
+    # The tracked file was not touched, which is the point of the copy.
+    assert (root / "README.md").read_text(encoding="utf-8") == before
 
 
 def test_the_readme_documents_the_command_that_regenerates_it():
@@ -153,7 +183,7 @@ def test_the_readme_names_the_revision_its_history_figures_are_over():
 
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text(encoding="utf-8")
-    pinned = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE)
+    pinned = re.search(r"^  measured at ([0-9a-f]{7,40})", readme, re.MULTILINE)
     assert pinned, "the README no longer records the revision its history is over"
     assert len(pinned.group(1)) >= 12, pinned.group(1)
 
@@ -166,7 +196,7 @@ def test_the_pinned_revision_is_a_commit_in_this_repository():
 
     root = Path(__file__).resolve().parents[1]
     readme = (root / "README.md").read_text(encoding="utf-8")
-    sha = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE).group(1)
+    sha = re.search(r"^  measured at ([0-9a-f]{7,40})", readme, re.MULTILINE).group(1)
 
     verified = subprocess.run(
         ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
@@ -202,7 +232,7 @@ def test_the_published_commit_count_is_what_that_revision_gives():
     from reporecon.mcp_server import ReconServer
 
     readme = (root / "README.md").read_text(encoding="utf-8")
-    sha = re.search(r"^  measured at ([0-9a-f]{7,40})$", readme, re.MULTILINE).group(1)
+    sha = re.search(r"^  measured at ([0-9a-f]{7,40})", readme, re.MULTILINE).group(1)
     stated = re.search(r"^verdict: (\w+) over (\d+) commits$", readme, re.MULTILINE)
     assert stated, "the README no longer states the verdict and the commit count"
 
@@ -215,13 +245,28 @@ def test_the_published_commit_count_is_what_that_revision_gives():
     assert result["rev"].startswith(sha), (result["rev"], sha)
 
 
-def test_the_count_at_head_is_allowed_to_differ_and_usually_does():
-    """The thing this arrangement exists to tolerate, asserted rather than assumed.
+def test_the_reported_revision_is_always_a_sha():
+    """This test was a tautology, and the field under it was broken.
 
-    If HEAD and the pin ever had to agree, the README would be stale again on the
-    next commit. So the figures are over the pin, HEAD is free to be ahead, and a
-    reader can see which is which because the block says so.
+    It read:
+
+        at_head = server.release_readiness({"path": str(root)})
+        assert at_head["rev"], at_head
+        assert "rev" in at_head
+
+    `"HEAD"` is truthy, so the first assertion passed on the broken value; the second
+    cannot fail after the first has already subscripted the key. Its own docstring
+    conceded "No assertion that they differ." Under it, `_rev` returned the literal
+    string `"HEAD"` whenever `rev` was omitted - the default path, every call - in a
+    field whose schema says "The full sha the history was read up to", while passing
+    `rev: "HEAD"` explicitly gave the sha.
+
+    A branch pointer is the "currently" that naming the revision exists to abolish, so
+    the assertion is on the shape: forty hex characters, however the question was
+    asked.
     """
+    import re
+    import subprocess
     import sys
 
     root = Path(__file__).resolve().parents[1]
@@ -229,9 +274,90 @@ def test_the_count_at_head_is_allowed_to_differ_and_usually_does():
     from reporecon.mcp_server import ReconServer
 
     server = ReconServer()
-    at_head = server.release_readiness({"path": str(root)})
-    assert at_head["rev"], at_head
-    # No assertion that they differ - on the commit that re-pins they are equal. What
-    # must hold is that asking at HEAD is a different question, and the answer says
-    # which commit it answered.
-    assert "rev" in at_head
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    ).stdout.strip()
+
+    for arguments in (
+        {"path": str(root)},
+        {"path": str(root), "rev": "HEAD"},
+    ):
+        result = server.release_readiness(arguments)
+        assert re.fullmatch(r"[0-9a-f]{40}", result["rev"]), (arguments, result["rev"])
+        assert result["rev"] == head, (arguments, result["rev"], head)
+
+    # An earlier revision is a different question and says so.
+    earlier = server.release_readiness({"path": str(root), "rev": "HEAD~2"})
+    assert re.fullmatch(r"[0-9a-f]{40}", earlier["rev"]), earlier["rev"]
+    assert earlier["rev"] != head
+    assert (
+        earlier["commits_considered"]
+        < server.release_readiness({"path": str(root)})["commits_considered"]
+    )
+
+
+def test_the_pin_has_not_fallen_far_behind_head():
+    """Ancestry says the figure was measured here. It does not say it is still worth
+    reading.
+
+    The arrangement this replaced was always stale and always failing, which is a bad
+    failure mode but a loud one. This one is quiet: a pin twenty commits behind looks
+    exactly like a pin on HEAD, the suite is green either way, and nothing in the
+    output said how far back it was. An independent review demonstrated it - three
+    commits past the pin, 232 tests passing, no warning anywhere.
+
+    So the block prints the distance and this bounds it. The limit is generous because
+    re-pinning is a deliberate act and a few commits of drift is the normal state
+    between them; what it catches is a pin nobody has looked at in a while.
+    """
+    import re
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    pinned = re.search(r"^  measured at ([0-9a-f]{7,40})", readme, re.MULTILINE)
+    assert pinned, "the README no longer records the revision its history is over"
+
+    behind = subprocess.run(
+        ["git", "rev-list", "--count", f"{pinned.group(1)}..HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert behind.returncode == 0, behind.stderr
+    distance = int(behind.stdout.strip() or 0)
+    assert distance <= PIN_DRIFT_LIMIT, (
+        f"the published history figures were measured {distance} commits ago; "
+        f"run `python demo.py --update-readme --at-head` and commit the result"
+    )
+
+
+def test_the_block_states_the_distance_it_is_behind():
+    """A reader cannot see the drift unless the output says it, and the suite cannot
+    be the only place it is visible."""
+    import re
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    stated = re.search(
+        r"^  measured at ([0-9a-f]{7,40}), (\d+) commit\(s\) behind HEAD", readme, re.MULTILINE
+    )
+    assert stated, "the block no longer states how far behind the pin is"
+
+    behind = subprocess.run(
+        ["git", "rev-list", "--count", f"{stated.group(1)}..HEAD"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert int(stated.group(2)) == int(behind.stdout.strip() or 0), (
+        stated.group(2),
+        behind.stdout.strip(),
+    )

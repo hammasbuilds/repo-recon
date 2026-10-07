@@ -29,6 +29,7 @@ from reporecon.mcp_server import (
     INVALID_PARAMS,
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
+    NOT_INITIALIZED,
     PROTOCOL_VERSIONS,
     ROOT_ENV,
     TOOLS,
@@ -101,25 +102,50 @@ def server() -> ReconServer:
 # ---- the protocol --------------------------------------------------------------------
 
 
-def drive(requests: list[dict]) -> list[dict]:
-    """Feed requests through `serve` over byte streams, as a client would."""
-    stdin = io.BytesIO("\n".join(json.dumps(r) for r in requests).encode("utf-8") + b"\n")
+#: The handshake, prepended by `drive`. Every result's shape is negotiated -
+#: `structuredContent` and `outputSchema` arrived in protocol 2025-06-18 - so a test
+#: that skips `initialize` is testing a shape no real client gets. Several tests in
+#: this file were doing exactly that, which is how the server came to answer cold
+#: calls in the newest shape whatever the client had declared.
+HANDSHAKE = {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "tests"},
+    },
+}
+
+
+def drive(requests: list[dict], *, handshake: bool = True) -> list[dict]:
+    """Feed requests through `serve` over byte streams, as a client would.
+
+    The handshake goes first and its reply is stripped, so indices are unchanged and
+    every test exercises the path a client actually takes. `handshake=False` sends
+    them cold, which only the tests about the handshake itself want.
+    """
+    sent = ([HANDSHAKE] if handshake else []) + list(requests)
+    stdin = io.BytesIO("\n".join(json.dumps(r) for r in sent).encode("utf-8") + b"\n")
     stdout = io.BytesIO()
     serve(stdin, stdout, ReconServer())
     stdout.seek(0)
-    return [json.loads(line) for line in stdout.read().decode("utf-8").splitlines() if line]
+    replies = [json.loads(line) for line in stdout.read().decode("utf-8").splitlines() if line]
+    return replies[1:] if handshake else replies
 
 
 def test_initialize_reports_the_protocol_it_was_asked_for():
     (reply,) = drive(
-        [
+        handshake=False,
+        requests=[
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "initialize",
                 "params": {"protocolVersion": "2025-06-18", "capabilities": {}},
             }
-        ]
+        ],
     )
     result = reply["result"]
     assert result["protocolVersion"] == "2025-06-18"
@@ -504,9 +530,15 @@ def test_a_docs_only_release_does_not_report_a_check_it_never_measured(
     out = server.release_readiness({"path": str(repo)})
 
     assert out["verdict"] == "pass", "nothing observed is not a failure"
-    assert out["not_measured"] == ["source changes without tests"]
-    assert out["checks_measured"] == out["checks_total"] - 1
-    assert out["evidence"] == "3 of 4 checks measured something"
+    # TWO checks have nothing to look at here, not one. The coupling check is the
+    # subject of this test; `riskiest commit` joins it because a release of one commit
+    # has no rest-of-release to stand out from - it used to compare the commit's score
+    # against the median of itself and report 1.0x as a measurement.
+    assert out["not_measured"] == ["source changes without tests", "riskiest commit"], out[
+        "not_measured"
+    ]
+    assert out["checks_measured"] == out["checks_total"] - 2
+    assert out["evidence"] == "2 of 4 checks measured something"
 
     coupling = next(c for c in out["checks"] if "without tests" in c["name"])
     assert coupling["status"] == "not measured"
@@ -524,9 +556,19 @@ def test_a_release_that_touches_source_measures_every_check(server: ReconServer,
     )
     out = server.release_readiness({"path": str(repo)})
 
-    assert out["not_measured"] == []
-    assert out["checks_measured"] == out["checks_total"]
-    assert out["evidence"] == "4 of 4 checks measured something"
+    # One commit, so the standout comparison has no rest-of-release to compare with
+    # and reports NOT_MEASURED - see
+    # `tests/captain/test_risk.py::test_a_release_of_one_commit_does_not_compare_it_with_itself`.
+    # This asserted `not_measured == []`, which passed only while that check was
+    # dividing a score by itself.
+    assert out["not_measured"] == ["riskiest commit"], out["not_measured"]
+    assert out["checks_measured"] == out["checks_total"] - 1
+
+    # What this test is actually about: source changed and arrived with a test, so the
+    # coupling check observed something.
+    coupling = next(c for c in out["checks"] if "tests" in c["name"])
+    assert coupling["status"] != "not measured", coupling
+    assert out["evidence"] == "3 of 4 checks measured something"
 
 
 def test_every_status_the_gate_can_return_is_in_the_declared_schema():
@@ -1180,3 +1222,131 @@ def test_an_unknown_tool_name_comes_back_with_the_names_that_exist():
     assert "unknown tool: 'map_repos'" in error["message"]
     for name in ("map_repo", "trace_impact", "review_diff", "riskiest_commits"):
         assert name in error["message"], name
+
+
+# -- the lifecycle ------------------------------------------------------------------
+
+
+def test_a_tool_call_before_initialize_is_refused():
+    """It used to be answered, in a shape the client had not agreed to.
+
+    `protocol` started at the NEWEST version, so a cold `tools/call` came back with
+    `structuredContent` - a field a 2024 client has no place for - and `tools/list`
+    advertised `outputSchema` the same way. MCP puts the MUST on the client and only a
+    SHOULD on the server, so leniency looked harmless; it stopped looking harmless
+    once the shapes were compared, because the honest outcomes are identical or
+    refused and silently different is neither.
+    """
+    replies = drive(
+        handshake=False,
+        requests=[
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "map_repo",
+                    "arguments": {"path": str(Path(__file__).resolve().parents[1])},
+                },
+            }
+        ],
+    )
+    assert len(replies) == 1, replies
+    error = replies[0]["error"]
+    assert error["code"] == NOT_INITIALIZED, error
+    assert "before initialize" in error["message"]
+    assert "initialize first" in error["message"]
+
+
+def test_tools_list_before_initialize_is_refused_too():
+    """`outputSchema` is withheld from an older client, so an early listing advertises
+    a contract the server has not agreed to honour."""
+    replies = drive(handshake=False, requests=[{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}])
+    assert replies[0]["error"]["code"] == NOT_INITIALIZED, replies
+
+
+def test_ping_is_answerable_cold():
+    """It has no response shape to negotiate, and a gate that refused it would refuse
+    a client's liveness check."""
+    replies = drive(handshake=False, requests=[{"jsonrpc": "2.0", "id": 1, "method": "ping"}])
+    assert "result" in replies[0], replies
+
+
+def test_the_answer_is_the_same_before_and_after_the_handshake():
+    """What the refusal protects, as the comparison that justifies it: with the gate
+    in place the cold call is an error rather than a different answer."""
+    request = {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "tools/call",
+        "params": {
+            "name": "map_repo",
+            "arguments": {"path": str(Path(__file__).resolve().parents[1])},
+        },
+    }
+    cold = drive(handshake=False, requests=[request])[0]
+    assert "error" in cold, cold
+
+    warm = drive([request])[0]
+    assert "result" in warm, warm
+    assert "structuredContent" in warm["result"], sorted(warm["result"])
+
+
+# -- which repository was actually read ---------------------------------------------
+
+
+def _redirect_repo(where: Path, gitdir: Path) -> Path:
+    """A directory holding one module and a `.git` FILE pointing elsewhere.
+
+    This is the shape of a git worktree or a submodule, so it is not exotic - and git
+    follows the redirect, which means the history read is the history of `gitdir`.
+    """
+    where.mkdir(parents=True)
+    (where / "m.py").write_text("def f():" + chr(10) + "    return 1" + chr(10), encoding="utf-8")
+    (where / ".git").write_text(f"gitdir: {gitdir.as_posix()}" + chr(10), encoding="utf-8")
+    return where
+
+
+def test_a_git_file_redirect_is_named_rather_than_hidden(server: ReconServer, tmp_path: Path):
+    """Both tools reported only the name or the path they were GIVEN.
+
+    So a directory containing one module and a `.git` file pointing at this repository
+    came back with thirty of this repository's commits, labelled with that directory's
+    name - another repository's history under the wrong label, with nothing in the
+    answer able to say so.
+
+    Not a confinement escape: unconfined, a caller could pass the real path directly.
+    A mislabelling, and the fix is to report which git directory was read instead of
+    assuming it was the obvious one.
+    """
+    root = Path(__file__).resolve().parents[1]
+    redirect = _redirect_repo(tmp_path / "redirect", root / ".git")
+
+    readiness = server.release_readiness({"path": str(redirect)})
+    assert readiness["repo"] == "redirect"
+    assert Path(readiness["git_dir"]).resolve() == (root / ".git").resolve(), readiness["git_dir"]
+    # The commits really are this repository's, which is why the label mattered.
+    assert readiness["commits_considered"] > 20, readiness["commits_considered"]
+
+    ranked = server.riskiest_commits({"path": str(redirect), "limit": 1})
+    assert ranked["repo"] == "redirect"
+    assert Path(ranked["git_dir"]).resolve() == (root / ".git").resolve(), ranked["git_dir"]
+
+
+def test_an_ordinary_repository_reports_its_own_git_dir(server: ReconServer):
+    """The common case, so the field is not only meaningful in the odd one."""
+    root = Path(__file__).resolve().parents[1]
+    out = server.release_readiness({"path": str(root)})
+    assert Path(out["git_dir"]).resolve() == (root / ".git").resolve(), out["git_dir"]
+    assert out["repo"] == root.name
+
+
+def test_both_history_tools_name_the_repository_the_same_way(server: ReconServer):
+    """`repo` was a directory NAME in one tool and an absolute PATH in the other,
+    both declared as a bare string with no description, so a client joining the two
+    results on it matched nothing."""
+    root = Path(__file__).resolve().parents[1]
+    readiness = server.release_readiness({"path": str(root)})
+    ranked = server.riskiest_commits({"path": str(root)})
+    assert readiness["repo"] == ranked["repo"] == root.name
+    assert readiness["git_dir"] == ranked["git_dir"]

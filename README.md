@@ -84,9 +84,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **26.3%** bind to a
+number means anything. Of the call sites in this repository, **26.1%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.2%** do.
+method on a third-party object — **87.1%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -96,16 +96,16 @@ returned, and the tool description says which is which.
 
 ## Output
 
-`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half is read from this repository's own history and moves with every commit, so take it as a shape rather than as a figure to check.
+`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half **names the commit it was measured at** and is re-derivable from it: four tests check that the revision is a commit here, that it is an ancestor of HEAD, that re-running `release_readiness` at it reproduces the printed verdict and count, and that it has not fallen too far behind. This paragraph used to say the git half "moves with every commit, so take it as a shape rather than as a figure to check" - which was true, and was the defect: a figure that is only true "currently" cannot be checked by anyone, including its own suite.
 
 This tool measures the repository it lives in, so every commit that adds a test moves the symbol and line counts and both resolution rates - and the test asserting the README matches the code fails on the commit that adds a test, correctly. `python demo.py --update-readme` rewrites this block and the two rates above it from one run, so the remedy is a command rather than four figures hand-edited in two places. A separate test re-runs the writer against a current README and fails if it changes anything, which is what makes "this block is that command's output" a checkable claim rather than a promise:
 
 ```
 map_repo - what is in here
 --------------------------
-34 modules, 460 symbols, 8,490 lines
-call graph: 641 of 735 in-scope calls bound to a definition here (87.2%)
-  the same number over EVERY call site, builtins included: 26.3% - which measures nothing
+34 modules, 474 symbols, 9,122 lines
+call graph: 668 of 767 in-scope calls bound to a definition here (87.1%)
+  the same number over EVERY call site, builtins included: 26.1% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.reviewbot.checks
@@ -132,12 +132,13 @@ check_modernisation - and what it would change
 
 review_diff - only what survived a disproof attempt
 ---------------------------------------------------
-0 proposed, 0 confirmed, 0 retracted
+1 proposed, 1 confirmed, 0 retracted
+  line 754: assert-in-source - assert is removed under `python -O`, so this check may not run
 
-release_readiness - scored from the history, not from opinion
--------------------------------------------------------------
+release_readiness - the whole history audited, not a release decision
+---------------------------------------------------------------------
 verdict: warn over 29 commits
-  measured at b9fd5b0eb9a9
+  measured at b9fd5b0eb9a9, 1 commit(s) behind HEAD
   pass  source changes without tests: 0 of 19 source-changing commits changed no test file
   warn  riskiest commit: 55.8 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
