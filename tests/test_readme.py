@@ -337,27 +337,21 @@ def test_the_pin_has_not_fallen_far_behind_head():
     )
 
 
-def test_the_block_states_the_distance_it_is_behind():
-    """A reader cannot see the drift unless the output says it, and the suite cannot
-    be the only place it is visible."""
+def test_the_block_does_not_state_a_distance_it_cannot_keep():
+    """The distance from HEAD is the right thing to know and the wrong thing to print.
+
+    It was in the block for exactly one commit. Committing the block changed the
+    distance the block stated, so the suite went red on the commit that carried it -
+    which is the circularity this whole arrangement removes, one level up: a published
+    figure that cannot survive being published.
+
+    So the sha is published, because it survives being committed, and the distance is
+    checked by `test_the_pin_has_not_fallen_far_behind_head` at the moment of asking.
+    A number that moves belongs where it is computed, not where it is committed.
+    """
     import re
-    import subprocess
 
-    root = Path(__file__).resolve().parents[1]
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    stated = re.search(
-        r"^  measured at ([0-9a-f]{7,40}), (\d+) commit\(s\) behind HEAD", readme, re.MULTILINE
-    )
-    assert stated, "the block no longer states how far behind the pin is"
-
-    behind = subprocess.run(
-        ["git", "rev-list", "--count", f"{stated.group(1)}..HEAD"],
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert int(stated.group(2)) == int(behind.stdout.strip() or 0), (
-        stated.group(2),
-        behind.stdout.strip(),
-    )
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+    pinned = re.search(r"^  measured at ([0-9a-f]{7,40})\s*$", readme, re.MULTILINE)
+    assert pinned, "the block no longer records the revision, or has grown a figure"
+    assert "behind HEAD" not in readme, "the distance is back in the committed block"

@@ -109,20 +109,6 @@ def main(argv: list[str] | None = None) -> int:
 _PIN = re.compile(r"^  measured at ([0-9a-f]{7,40})", re.MULTILINE)
 
 
-def _behind(rev: str) -> int:
-    """How many commits HEAD is ahead of `rev`. Zero on the commit that re-pins."""
-    import subprocess
-
-    done = subprocess.run(
-        ["git", "rev-list", "--count", f"{rev}..HEAD"],
-        cwd=str(HERE),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    return int(done.stdout.strip() or 0) if done.returncode == 0 else -1
-
-
 def _pinned_revision() -> str:
     """The revision the README's history figures were measured at, or HEAD.
 
@@ -211,11 +197,17 @@ def _run(server: ReconServer) -> tuple[int, dict]:
         rule("release_readiness - the whole history audited, not a release decision")
         gate = server.release_readiness({"path": str(HERE), "rev": rev})
         print(f"verdict: {gate['verdict']} over {gate['commits_considered']} commits")
-        # The distance from HEAD, because ancestry alone does not say whether the pin
-        # is still worth reading. Pinned and twenty commits behind looks exactly like
-        # pinned and current, and the suite is green either way - which is the failure
-        # mode this arrangement introduced in exchange for the one it removed.
-        print(f"  measured at {gate['rev'][:12]}, {_behind(gate['rev'])} commit(s) behind HEAD")
+        # The sha alone. The distance from HEAD belongs here by the same argument -
+        # pinned and twenty commits behind looks exactly like pinned and current - and
+        # it cannot be published: committing the block changes the distance it states,
+        # which is the circularity this whole arrangement exists to remove, one level
+        # up. It was printed here for one commit and the suite went red on the commit
+        # that carried it.
+        #
+        # So the sha is published, because it survives being committed, and the
+        # distance is enforced by `test_the_pin_has_not_fallen_far_behind_head` -
+        # computed at the moment of asking, where a moving number belongs.
+        print(f"  measured at {gate['rev'][:12]}")
         for check in gate["checks"]:
             print(f"  {check['status']:5s} {check['name']}: {check['detail']}")
 
