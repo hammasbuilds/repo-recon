@@ -158,22 +158,22 @@ the same checks over four functions written to exercise them:
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
-verdict: warn over 29 commits
-  measured at b9fd5b0eb9a9
-  pass  source changes without tests: 0 of 19 source-changing commits changed no test file
-  warn  riskiest commit: 55.8 against a median of 32.0 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+verdict: warn over 40 commits
+  measured at 8ae90a495841
+  pass  source changes without tests: 0 of 26 source-changing commits changed no test file
+  warn  riskiest commit: 55.5 against a median of 31.9 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 2 commit(s) over 2360 lines (20x the 118-line median)
+  warn  commits far above this repo's median: 1 commit(s) over 2620 lines (20x the 131-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 118 lines across 4 files
-   55.8  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.8
-   54.8  f21541b7  Four readers for an unfamiliar codebase, beh
-         files 25.0, spread 20.0, volume 9.8
-   42.8  df1063a0  Delete the surface nothing reads, and descri
-         spread 20.0, files 16.2, volume 5.5
+a normal commit here is 131 lines across 4 files
+   55.5  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.5
+   54.6  f21541b7  Four readers for an unfamiliar codebase, beh
+         files 25.0, spread 20.0, volume 9.6
+   54.4  0e0a8d97  A commit message that adds a commit, a 30 KB
+         files 25.0, spread 20.0, volume 9.4
 ```
 
 ## What it will not do
