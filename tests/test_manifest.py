@@ -60,6 +60,21 @@ def test_the_readme_proves_ownership_of_the_registry_name():
     assert re.search(r"mcp-name: " + re.escape(MANIFEST["name"]) + r"(\s|-->)", readme)
 
 
+def test_the_readme_states_the_publication_order():
+    """`server.json` declares a PyPI package at a version, which is what the registry
+    needs and is not a statement that the upload has happened.
+
+    This package is not on PyPI and the README said nothing about it either way - so a
+    reader had the manifest declaring `registryType: "pypi"` and no indication that
+    submitting it before the upload makes every client fail at `uvx repo-recon`.
+    Nothing here can check whether the upload has happened; what is checkable is that
+    the order is written down.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Upload to PyPI first, then" in readme
+    assert "is **not** a statement that the upload has happened" in readme
+
+
 def test_every_tool_presents_a_surface_a_client_can_read():
     """What a Trust Index actually grades: can a reader see what each tool takes and
     returns without running it."""
