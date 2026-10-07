@@ -274,13 +274,32 @@ def test_mechanical_and_behavioural_edits_are_never_merged(server: ReconServer, 
 
 
 def test_nothing_is_written_while_the_tools_run(server: ReconServer, repo: Path):
+    """Contents AND the file list, both captured before the tools run.
+
+    The second assertion read
+
+        assert sorted(p.name for p in repo.rglob("*")) == sorted(
+            p.name for p in repo.rglob("*")
+        )
+
+    - both sides evaluated after the tools, so it compared the directory with itself
+    at one instant and could not fail. It was there to catch a file appearing or
+    disappearing, and the contents check above it covers only `*.py`, so a tool
+    writing a `.json` or deleting a fixture would have passed both.
+    """
+    listing_before = sorted(p.relative_to(repo).as_posix() for p in repo.rglob("*"))
     before = {p: p.read_bytes() for p in sorted(repo.rglob("*.py"))}
+
     server.map_repo({"path": str(repo)})
     server.check_modernisation({"path": str(repo)})
     server.review_diff({"path": str(repo / "src" / "demo" / "old.py")})
+
     after = {p: p.read_bytes() for p in sorted(repo.rglob("*.py"))}
+    listing_after = sorted(p.relative_to(repo).as_posix() for p in repo.rglob("*"))
     assert before == after
-    assert sorted(p.name for p in repo.rglob("*")) == sorted(p.name for p in repo.rglob("*"))
+    assert listing_before == listing_after, (
+        f"a file appeared or disappeared: {sorted(set(listing_after) ^ set(listing_before))}"
+    )
 
 
 def test_an_unknown_rule_name_is_refused_with_the_list(server: ReconServer, repo: Path):
