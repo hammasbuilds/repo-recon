@@ -232,6 +232,29 @@ def iter_python_files(
     return found[:limit], nested, len(found) > limit, unreadable, sorted(refused)
 
 
+def _annotation_name(node: ast.expr) -> str:
+    """The type an annotation names, including a forward reference written as a string.
+
+    `def drive(engine: Engine)` and `def drive(engine: "Engine")` say the same thing -
+    the second is what anyone writes when the class is defined later in the file or
+    imported only for type checking, which is most annotations in a typed codebase with
+    `from __future__ import annotations`. `_callee_name` returns "" for a string
+    constant, so half the annotations in a modern file bound nothing.
+
+    Subscripts come back as their base, so `list[Engine]` yields `list` and binds
+    nothing useful; that is the same answer `_callee_name` gives and is correct, because
+    a list of engines is not an engine.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        text = node.value.strip()
+        # A bare dotted name only. `"Engine | None"` and `"list[Engine]"` are not a
+        # single type and binding them to their first word would be a guess.
+        if text and all(part.isidentifier() for part in text.split(".")):
+            return text
+        return ""
+    return _callee_name(node) or ""
+
+
 def _decorator_name(node: ast.expr) -> str:
     """Flatten a decorator expression to a dotted name, best effort."""
     if isinstance(node, ast.Name):
@@ -319,8 +342,50 @@ class _Visitor(ast.NodeVisitor):
             )
         )
 
+    def _bind_parameters(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        """`def run(server: ReconServer)` - the annotation names the type.
+
+        An annotated ASSIGNMENT was already a binding and an annotated PARAMETER was
+        not, so a function handed an object instead of constructing one resolved
+        nothing. `demo.py` is written that way - `def _run(server: ReconServer)` - and
+        its 38 calls to `server.map_repo(...)` and the rest went unresolved, which put
+        all five of this server's tool methods at the top of `entry_points` under
+        "Called by nothing in this repository". That list is the first thing `map_repo`
+        tells a newcomer, and it was false at every one of its top five rows.
+
+        The scope is the function itself, which is where the parameter is in scope.
+        """
+        arguments = node.args
+        every = [
+            *arguments.posonlyargs,
+            *arguments.args,
+            *arguments.kwonlyargs,
+            arguments.vararg,
+            arguments.kwarg,
+        ]
+        # The same string `_current_caller` produces, because that is the key the
+        # resolver looks the binding up under: module, then the enclosing scopes, then
+        # this function. `_bind_parameters` runs before the name is pushed onto
+        # `_scope`, so it is appended here.
+        scope = ".".join([self.module, *self._scope, node.name])
+        for argument in every:
+            if argument is None or argument.annotation is None:
+                continue
+            annotation = _annotation_name(argument.annotation)
+            if not annotation:
+                continue
+            self.bindings.append(
+                Binding(
+                    scope=scope,
+                    name=argument.arg,
+                    cls=annotation,
+                    line=argument.lineno,
+                )
+            )
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
         self._record_def(node)
+        self._bind_parameters(node)
         self._scope.append(node.name)
         # A nested function is not a method of the enclosing class.
         saved, self._class_depth = self._class_depth, 0
@@ -330,6 +395,7 @@ class _Visitor(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
         self._record_def(node)
+        self._bind_parameters(node)
         self._scope.append(node.name)
         saved, self._class_depth = self._class_depth, 0
         self.generic_visit(node)

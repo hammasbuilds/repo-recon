@@ -41,6 +41,7 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -48,8 +49,14 @@ from typing import Any, BinaryIO
 
 from . import __version__
 from .captain.gate import evaluate
-from .captain.history import NotAGitRepository, read_history, resolve_revision
-from .captain.risk import Baseline, score_commit
+from .captain.history import (
+    NotAGitRepository,
+    UnreadableHistory,
+    git_dir,
+    read_history,
+    resolve_revision,
+)
+from .captain.risk import RELATIVE_FACTORS, RELATIVE_MINIMUM, Baseline, score_commit
 from .cartographer.graph import build_graph
 from .cartographer.parse import FILE_LIMIT as _parse_FILE_LIMIT
 from .cartographer.parse import SOURCE_LIMIT as _parse_SOURCE_LIMIT
@@ -113,6 +120,13 @@ FILE_LIMIT = _parse_FILE_LIMIT
 #: message, and a 30 KB line of nested brackets ended the process.
 MAX_LINE = 1_000_000
 
+#: Protocol versions in which a request batch - a JSON array of requests - is part of
+#: the spec. Removed in 2025-06-18, so a batch is refused there BY VERSION rather than
+#: by being unrecognised: `isinstance(message, dict)` answered "not a JSON-RPC 2.0
+#: message", which is false of an array of requests and told a conforming client
+#: nothing it could act on.
+BATCH_VERSIONS = frozenset({"2025-03-26", "2024-11-05"})
+
 #: Half of a surrogate pair. Legal JSON, not a character, and what a client that
 #: truncates a UTF-16 buffer emits. `json.dumps` escapes it back to the same thing,
 #: so a strict parser rejects the whole frame - which means the reply to a request
@@ -142,10 +156,10 @@ INSTRUCTIONS = (
     "Six read-only readers for a Python repository you did not write. Point them at a "
     "path on this machine; they parse source and return what they read. None of them "
     "writes a file or opens a network connection. Two of them - release_readiness and "
-    "riskiest_commits - run `git log` and `git rev-parse` in the repository you name, "
-    "with fixed argument lists and no shell, which are the only processes any of them "
-    "starts; the other four touch no process at all. `review_diff` reads a diff you "
-    "pass it as text and does not produce one. "
+    "riskiest_commits - run `git log`, `git rev-parse` and `git ls-files` in the "
+    "repository you name, with fixed argument lists and no shell, which are the only "
+    "processes any of them starts; the other four touch no process at all. "
+    "`review_diff` reads a diff you pass it as text and does not produce one. "
     "Call map_repo first: it says which modules matter, where the entry points are, and "
     "how much of the call graph resolved. Read repo_resolution_rate, not resolution_rate: "
     "the first is the share of calls that COULD bind here and did, the second counts "
@@ -430,6 +444,8 @@ TOOLS: list[dict[str, Any]] = [
         ["path"],
         output={
             "files_scanned": {"type": "integer"},
+            "files_read": {"type": "integer"},
+            "files_skipped": {"type": "integer"},
             "mechanical": {"type": "integer"},
             "behavioural": {"type": "integer"},
             "by_rule": {"type": "object", "additionalProperties": {"type": "integer"}},
@@ -456,6 +472,8 @@ TOOLS: list[dict[str, Any]] = [
             "by_rule",
             "edits",
             "files_scanned",
+            "files_read",
+            "files_skipped",
             "mechanical",
             "rules_available",
         ],
@@ -484,8 +502,42 @@ TOOLS: list[dict[str, Any]] = [
             "confirmed": {"type": "integer"},
             "retracted": {
                 "type": "integer",
-                "description": "Proposed and then disproved. Reported so the ratio is "
-                "visible: a checker that retracts nothing is not verifying anything.",
+                "description": "Proposed and then withdrawn, for either reason below. "
+                "Reported so the ratio is visible: a checker that retracts nothing is "
+                "not verifying anything.",
+            },
+            "disproved": {
+                "type": "integer",
+                "description": "Withdrawn because a per-rule defeater showed the "
+                "finding was not a bug - the function never mutates its default, the "
+                "except clause re-raises. This is the number the retraction rate is "
+                "about.",
+            },
+            "acknowledged": {
+                "type": "integer",
+                "description": "Withdrawn because the author had already marked the "
+                "line - `# deliberate`, or a `noqa`/`nosec` whose code belongs to this "
+                "rule. Not a disproof, and counted apart from one for that reason.",
+            },
+            "retractions": {
+                "type": "array",
+                "description": "What was withdrawn and why. The counts above used to be "
+                "returned with an empty `findings` array and nothing else, so a caller "
+                "had no way to tell a disproof from an acknowledgement.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "line": {"type": "integer", "description": "1-indexed."},
+                        "rule": {"type": "string", "description": "Which check proposed it."},
+                        "message": {"type": "string", "description": "What it proposed."},
+                        "reason": {"type": "string", "description": "Why it was withdrawn."},
+                        "acknowledged": {
+                            "type": "boolean",
+                            "description": "True for an author marker, false for a defeater.",
+                        },
+                    },
+                    "required": ["line", "rule", "reason", "acknowledged"],
+                },
             },
             "findings": {
                 "type": "array",
@@ -508,12 +560,15 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
         output_required=[
+            "acknowledged",
             "confirmed",
+            "disproved",
             "findings",
             "parse_error",
             "path",
             "proposed",
             "retracted",
+            "retractions",
         ],
     ),
     _tool(
@@ -683,6 +738,33 @@ TOOLS: list[dict[str, Any]] = [
                 "field name meant two things and a client joining the two results on "
                 "it matched nothing.",
             },
+            "not_measured": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Risk factors that are arithmetic rather than observation for this "
+                    "population. `volume` and `files` are scored against this "
+                    "repository's median, and over fewer than three commits a commit IS "
+                    "the median - the factor is then its weight times one half for any "
+                    "commit of any repository. `release_readiness` guarded this and "
+                    "this tool, reporting the same scores, did not."
+                ),
+            },
+            "factors_measured": {
+                "type": "integer",
+                "description": "Risk factors that measured something here: "
+                "factors_total minus the length of not_measured.",
+            },
+            "factors_total": {
+                "type": "integer",
+                "description": "Risk factors the score is built from, always four: "
+                "spread, files, untested_source, volume.",
+            },
+            "evidence": {
+                "type": "string",
+                "description": "How many of the four risk factors measured something, "
+                "in the same words `release_readiness` uses.",
+            },
             "rev": {
                 "type": "string",
                 "description": "The full sha the history was read up to. A ranking is "
@@ -754,7 +836,16 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
         },
-        output_required=["commits", "commits_considered", "median_churn", "repo"],
+        output_required=[
+            "commits",
+            "commits_considered",
+            "evidence",
+            "factors_measured",
+            "factors_total",
+            "median_churn",
+            "not_measured",
+            "repo",
+        ],
     ),
 ]
 
@@ -789,7 +880,19 @@ OUTPUT_NOTES: dict[str, dict[str, str]] = {
         "symbol": "The symbol as asked for, before resolution.",
     },
     "check_modernisation": {
-        "files_scanned": "Python files read. The denominator for the two counts below.",
+        "files_scanned": (
+            "Python files FOUND under the path. Not the denominator: a file that "
+            "cannot be read, is over the size limit, or does not parse is counted "
+            "here and read by nothing. This said \"Python files read. The "
+            "denominator for the two counts below\", and four files of garbage "
+            "reported 0 mechanical and 0 behavioural over 4 scanned."
+        ),
+        "files_read": (
+            "Python files whose contents reached the rules. THIS is the denominator "
+            "for the two counts below; when it is 0 they are both 0 whatever the "
+            "code says."
+        ),
+        "files_skipped": "files_scanned minus files_read. See parse_errors.",
         "mechanical": (
             "Edits that are provably equivalent - rewriting `List[int]` to "
             "`list[int]` changes no behaviour - and so are safe to apply unread. This "
@@ -907,31 +1010,70 @@ def _root() -> Path | None:
 def _confined_repository(root: Path) -> None:
     """Refuse a checkout whose git directory lives outside the confinement root.
 
-    `.git` is usually a directory, and sometimes a *file* holding `gitdir: <path>` -
-    that is how worktrees and submodules are laid out. `is_repository` only asks
-    whether the entry exists, so a one-line `.git` file placed inside the root pointed
-    git at a repository outside it, and `riskiest_commits` returned that repository's
-    commit subjects, authors and file paths. The path check is on the argument; this
-    is the redirection the argument does not mention.
+    The path check is on the argument; this is the redirection the argument does not
+    mention. `is_repository` only asks whether `.git` exists, so anything named `.git`
+    inside the root that points somewhere else pointed git at a repository outside it,
+    and `riskiest_commits` returned that repository's commit subjects, authors and file
+    paths.
+
+    Asked of git rather than read off the filesystem. This used to look for the one-line
+    `gitdir: <path>` form that worktrees and submodules use - `if not marker.is_file():
+    return` - and a `.git` that is a directory symlink or a Windows junction is the same
+    redirection in a form the check never examined: five commits from outside the root
+    came back, with the root set.
+
+    `git rev-parse --absolute-git-dir` is git's own answer to "which repository am I
+    about to read", after every symlink, junction, `gitdir:` file and `$GIT_DIR` has
+    been resolved. Parsing the marker was a guess at that answer, and the filesystem has
+    more ways to point somewhere else than a guess can enumerate.
     """
     confine = _root()
     if confine is None:
         return
     marker = root / ".git"
-    if not marker.is_file():
+    if not marker.exists():
         return
+
+    # The marker first, when it is the `gitdir:` file. Git is the authority on where a
+    # repository really lives, but it answers only for a repository it can read: a
+    # `gitdir:` pointing at a directory with no git structure in it makes `rev-parse`
+    # fail, and refusing on the text is still right, because the text is what names
+    # somewhere outside the root.
+    if marker.is_file():
+        try:
+            text = marker.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError as exc:
+            raise ToolError(
+                f"{marker} cannot be read, so it cannot be checked: {exc}"
+            ) from None
+        if text.startswith("gitdir:"):
+            named = Path(text.split(":", 1)[1].strip()).expanduser()
+            named = (root / named).resolve() if not named.is_absolute() else named.resolve()
+            if confine not in named.parents and named != confine:
+                raise ToolError(
+                    f"{root}/.git points at {named}, which is outside {ROOT_ENV} ({confine})"
+                )
+
     try:
-        text = marker.read_text(encoding="utf-8", errors="replace").strip()
-    except OSError as exc:
-        # The confinement check could not be made. Returning quietly would let the call
-        # through on exactly the file that exists to redirect it.
-        raise ToolError(f"{marker} cannot be read, so it cannot be checked: {exc}") from None
-    if not text.startswith("gitdir:"):
+        pointed = Path(git_dir(root)).resolve()
+    except NotAGitRepository:
+        # Not a repository git will read, so there is nothing for it to be redirected
+        # AT. The tools raise their own "not a git repository" for this, and the branch
+        # above has already refused the one form that names a path without git being
+        # able to follow it.
         return
-    pointed = Path(text.split(":", 1)[1].strip()).expanduser()
-    pointed = (root / pointed).resolve() if not pointed.is_absolute() else pointed.resolve()
+    except (OSError, subprocess.SubprocessError) as exc:
+        # The confinement check could not be made. Returning quietly would let the call
+        # through on exactly the layout that exists to redirect it.
+        raise ToolError(
+            f"the git directory of {root} could not be determined, so it cannot be "
+            f"checked against {ROOT_ENV}: {type(exc).__name__}: {exc}"
+        ) from None
     if confine not in pointed.parents and pointed != confine:
-        raise ToolError(f"{root}/.git points at {pointed}, which is outside {ROOT_ENV} ({confine})")
+        raise ToolError(
+            f"{root} is served by the git directory {pointed}, which is outside "
+            f"{ROOT_ENV} ({confine})"
+        )
 
 
 def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
@@ -1047,6 +1189,16 @@ def _python_files(target: Path) -> tuple[list[Path], bool, list[Path]]:
     than the tree, and a scan that read less than the tree should say so.
     """
     if target.is_file():
+        # The suffix, because this function's whole contract is "Python files" and a
+        # named file was taken on trust. `README.md`, `uv.lock` and `LICENSE` were each
+        # accepted and came back as `files_scanned 1, parse_errors 1` - a scan reporting
+        # nothing to modernise in a file it cannot read. `review_diff` refuses the same
+        # argument with this sentence; two sibling tools disagreed about one mistake.
+        if target.suffix != ".py":
+            raise ToolError(
+                f"{target.name} is not a Python file; these checks read Python. Pass a "
+                "directory to scan every .py file under it."
+            )
         return [target], False, []
     skip = {".git", ".venv", "venv", "node_modules", "__pycache__", ".tox", ".mypy_cache"}
     # `rglob` follows directory symlinks and Windows junctions, so a link inside the
@@ -1174,6 +1326,14 @@ class ReconServer:
         by_rule: dict[str, int] = {}
         errors: list[dict] = []
         mechanical = behavioural = 0
+        #: Files whose contents actually reached the rules. `files_scanned` is what was
+        #: FOUND, and its schema called it "Python files read. The denominator for the
+        #: two counts below" - which it was not: an unreadable file, a file over
+        #: `SOURCE_LIMIT` and a file that does not parse are each skipped below and were
+        #: each counted. Four files of garbage reported "4 files: 0 mechanical, 0
+        #: behavioural", which reads as a clean bill of health for a directory nothing
+        #: was read from.
+        read = 0
 
         def shown(p: Path) -> str:
             """Repo-relative, which is what map_repo reports and what the schema says.
@@ -1197,6 +1357,7 @@ class ReconServer:
             if scan.parse_error:
                 errors.append({"path": shown(path), "error": scan.parse_error})
                 continue
+            read += 1
             for edit in scan.edits:
                 mechanical += edit.mechanical
                 behavioural += not edit.mechanical
@@ -1216,6 +1377,8 @@ class ReconServer:
 
         return {
             "files_scanned": len(files),
+            "files_read": read,
+            "files_skipped": len(files) - read,
             "mechanical": mechanical,
             "behavioural": behavioural,
             "by_rule": dict(sorted(by_rule.items())),
@@ -1283,11 +1446,33 @@ class ReconServer:
             }
             for verdict in file_review.confirmed
         ]
+        # What was retracted and why. The payload was a count with nothing behind it -
+        # `{"proposed": 1, "confirmed": 0, "retracted": 1, "findings": []}` - so a
+        # caller could not tell a disproof ("the function never mutates it") from an
+        # acknowledgement ("the author wrote `# deliberate`"), and the module's
+        # docstring calls the retraction rate "the number this project is built to
+        # measure". An acknowledgement is not a disproof, so the two are counted apart.
+        confirmed_lines = {id(v) for v in file_review.confirmed}
+        retractions = [
+            {
+                "line": verdict.proposal.line,
+                "rule": verdict.proposal.rule,
+                "message": verdict.proposal.message,
+                "reason": verdict.reason,
+                "acknowledged": verdict.reason.startswith("the author marked it"),
+            }
+            for verdict in file_review.verdicts
+            if id(verdict) not in confirmed_lines
+        ]
+        acknowledged = sum(1 for row in retractions if row["acknowledged"])
         return {
             "path": str(path),
             "proposed": len(file_review.verdicts),
             "confirmed": len(file_review.confirmed),
             "retracted": len(file_review.verdicts) - len(file_review.confirmed),
+            "disproved": len(retractions) - acknowledged,
+            "acknowledged": acknowledged,
+            "retractions": retractions[:LIST_LIMIT],
             "findings": findings[:LIST_LIMIT],
             "parse_error": parse_error,
         }
@@ -1305,7 +1490,7 @@ class ReconServer:
         rev = _rev(arguments, root)
         try:
             history = read_history(root, limit=scan, rev=rev)
-        except NotAGitRepository as exc:
+        except (NotAGitRepository, UnreadableHistory) as exc:
             raise ToolError(str(exc)) from None
         result = evaluate(history, since=last)
         # `evidence` and `not_measured` are in the summary, not only inside `checks`.
@@ -1350,7 +1535,7 @@ class ReconServer:
         rev = _rev(arguments, root)
         try:
             history = read_history(root, limit=scan, rev=rev)
-        except NotAGitRepository as exc:
+        except (NotAGitRepository, UnreadableHistory) as exc:
             raise ToolError(str(exc)) from None
 
         # Risk is relative to what a normal commit looks like HERE: a 400-line change
@@ -1360,6 +1545,43 @@ class ReconServer:
         baseline = Baseline.from_history(history)
         scored = [(commit, score_commit(commit, baseline)) for commit in history.commits]
         ranked = sorted(scored, key=lambda pair: -pair[1].score())[:limit]
+
+        # Which of these numbers are measurements, in the vocabulary `release_readiness`
+        # already uses. `_log_scale(value, midpoint)` is exactly 0.5 when the value IS
+        # the midpoint, so over one commit - where the commit is its own median - the
+        # two repo-relative factors are the weight times one half for any commit of any
+        # repository. They were reported as `('files', 12.5), ('volume', 6.0)` beside a
+        # `because` array whose stated purpose is that "a ranking can be argued with
+        # rather than taken on faith".
+        not_measured: list[str] = []
+        if history.shallow:
+            not_measured = list(RELATIVE_FACTORS)
+            why = (
+                "this is a shallow clone, so the median these factors are scored "
+                "against is the median of the commits that happened to be fetched"
+            )
+        elif len(history.commits) < RELATIVE_MINIMUM:
+            not_measured = list(RELATIVE_FACTORS)
+            why = (
+                f"{len(history.commits)} commit(s) is too few for a repository median: "
+                "each commit is scored against the median of itself, which makes these "
+                "factors the weight times one half rather than an observation"
+            )
+        elif baseline.median_churn <= 0 or baseline.median_files <= 0:
+            not_measured = list(RELATIVE_FACTORS)
+            why = (
+                f"the median commit here is {baseline.median_churn:.0f} lines across "
+                f"{baseline.median_files:.0f} file(s), and every number is infinitely "
+                "above zero"
+            )
+        else:
+            why = ""
+
+        factor_names = ("spread", "files", "untested_source", "volume")
+        caveat = history.caveat
+        if not_measured:
+            caveat = f"{caveat} {why}".strip() if caveat else why
+
         return {
             # The directory NAME, as `release_readiness` returns - this was
             # `str(root)`, so one field name meant a name in one tool and an absolute
@@ -1373,13 +1595,23 @@ class ReconServer:
             # files in this repository set `fetch-depth: 0` because of this, so the
             # hazard was known to the people who wrote it and not to a caller.
             "shallow": history.shallow,
-            "caveat": history.caveat,
+            "caveat": caveat,
             # What the ranking is over. A repository's riskiest commits are a
             # different set after every push, so a ranking that is going to be written
             # down has to name the commit it was taken at - the same reason
             # `release_readiness` returns it, which this accepted and never reported.
             "rev": rev,
             "commits_considered": len(history.commits),
+            # The same three fields `release_readiness` returns, for the same reason: a
+            # score whose components cannot differ is not evidence, and a caller reading
+            # a ranking has no way to know that from the ranking.
+            "not_measured": not_measured,
+            "factors_measured": len(factor_names) - len(not_measured),
+            "factors_total": len(factor_names),
+            "evidence": (
+                f"{len(factor_names) - len(not_measured)} of {len(factor_names)} "
+                "risk factors measured something"
+            ),
             "median_churn": baseline.median_churn,
             "median_files": baseline.median_files,
             "commits": [
@@ -1430,22 +1662,28 @@ def _bounded_lines(stdin: BinaryIO, limit: int = MAX_LINE + 1):
     check said "refused before parsing" - which was true of `json.loads` and not of the
     work already done.
 
-    The over-long line is returned truncated, so the check downstream still sees
-    something longer than the limit and answers with a parse error naming it. The rest
-    of that line is discarded up to the newline, so the next line is a line and not the
-    tail of this one.
+    Yields `(chunk, truncated)`. `truncated` is this function's own answer, because it
+    is the only thing that knows: the limit is in BYTES and the check downstream counted
+    CHARACTERS, so 1.2 MB of `é` - two bytes each - truncated at 500,000 bytes, arrived
+    as 500,000 characters, passed a 1,000,000-character check and came back as
+    "invalid JSON: Unterminated string" instead of the message about the limit that this
+    docstring promised. Two units for one limit.
+
+    The rest of an over-long line is discarded up to the newline, so the next line is a
+    line and not the tail of this one.
     """
     while True:
         chunk = stdin.readline(limit)
         if not chunk:
             return
-        if len(chunk) >= limit and not chunk.endswith(b"\n"):
+        truncated = len(chunk) >= limit and not chunk.endswith(b"\n")
+        if truncated:
             # Too long. Drain to the end of it without keeping any of it.
             while True:
                 more = stdin.readline(limit)
                 if not more or more.endswith(b"\n"):
                     break
-        yield chunk
+        yield chunk, truncated
 
 
 def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
@@ -1461,80 +1699,61 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
         stdout.write((json.dumps(message) + "\n").encode("utf-8"))
         stdout.flush()
 
-    for raw in _bounded_lines(stdin):
-        line = raw.decode("utf-8", errors="replace").strip()
-        if not line:
-            continue
-        if len(line) > MAX_LINE:
-            # Refused before parsing. A JSON-RPC message is one line, and a caller
-            # sending a megabyte of it is not sending a request this server can answer;
-            # what it IS doing is making the decoder do unbounded work on input nobody
-            # has checked.
-            send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": PARSE_ERROR,
-                        "message": (
-                            f"line is {len(line):,} characters; the limit is "
-                            f"{MAX_LINE:,}. One JSON-RPC message per line."
-                        ),
-                    },
-                }
-            )
-            continue
-        try:
-            message = json.loads(line)
-        # `Exception`, not `JSONDecodeError`. That is the way a line is *invalid*; it is
-        # not the only way parsing one can fail. 15,000 nested `[` raises
-        # `RecursionError` from inside the decoder - at 10,000 it returns and this
-        # server answers -32600 correctly, so the failure is a cliff rather than a
-        # shape - and it propagated out of this loop and exited the process, leaving
-        # that request and every later request unanswered.
-        except Exception as exc:  # noqa: BLE001 - a hostile line may break a parser
-            send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": PARSE_ERROR,
-                        "message": f"invalid JSON: {type(exc).__name__}: {exc}",
-                    },
-                }
-            )
-            continue
+    def answer(message: Any) -> dict | None:
+        """One JSON-RPC message in, one reply out, or None for a notification.
 
+        A function rather than the body of the read loop so that a line and an element
+        of a batch go through the same code: a batch used to be refused as "not a
+        JSON-RPC 2.0 message", which is false of an array of requests.
+        """
+        nonlocal protocol
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
-            send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": INVALID_REQUEST, "message": "not a JSON-RPC 2.0 message"},
-                }
-            )
-            continue
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": INVALID_REQUEST, "message": "not a JSON-RPC 2.0 message"},
+            }
 
         request_id = message.get("id")
         method = message.get("method")
         params = message.get("params") or {}
         if "id" not in message:
-            continue  # a notification; nothing to answer
+            return None  # a notification; nothing to answer
         if request_id is None:
             # An explicit null id is not a notification. Treating it as one left a
             # client that uses null ids waiting for a reply that never came; MCP
             # forbids the null id, so it is answered as the malformed request it is.
-            send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {
-                        "code": INVALID_REQUEST,
-                        "message": "id must not be null; use a string or an integer",
-                    },
-                }
-            )
-            continue
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": INVALID_REQUEST,
+                    "message": "id must not be null; use a string or an integer",
+                },
+            }
+        if not isinstance(request_id, (str, int)) or isinstance(request_id, bool):
+            # JSON-RPC 2.0: id SHOULD be a String, Number or Null. The null case above
+            # had a dedicated branch and this one had none, so `{"id": {"a": 1}}` was
+            # accepted and echoed back - the one shape the spec names as wrong was
+            # refused and the one it does not contemplate went through. `bool` is
+            # excluded because `True` is an `int` in Python and is not a JSON number.
+            #
+            # A float is a JSON Number and allowed by the letter of the spec; it is
+            # refused here with the rest because an id is matched for equality, and a
+            # float round-tripped through JSON is the one scalar that may not come back
+            # equal to itself.
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": INVALID_REQUEST,
+                    "message": (
+                        "id must be a string or an integer, not "
+                        f"{type(request_id).__name__}; it is matched for equality to "
+                        "pair a reply with its request"
+                    ),
+                },
+            }
 
         try:
             if not isinstance(params, dict):
@@ -1628,28 +1847,118 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
             else:
                 raise ProtocolError(METHOD_NOT_FOUND, f"unknown method: {method!r}")
         except ProtocolError as exc:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": exc.code, "message": exc.message},
+            }
+        except Exception as exc:  # pragma: no cover - reported, never a crash
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": INTERNAL_ERROR,
+                    "message": f"{type(exc).__name__}: {exc}",
+                },
+            }
+
+        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+    def batch(messages: list) -> dict | list | None:
+        """A request array, which is part of the spec up to and including 2025-03-26.
+
+        One array back, holding a reply for every element that is a request and nothing
+        for the notifications - which is what the spec says, and what a client that
+        sends N requests and waits for N replies needs. An empty array is itself an
+        invalid request.
+        """
+        if protocol is not None and protocol not in BATCH_VERSIONS:
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": INVALID_REQUEST,
+                    "message": (
+                        f"a request batch is not part of protocol {protocol}; it was "
+                        f"removed after {max(BATCH_VERSIONS)}. Send one request per line."
+                    ),
+                },
+            }
+        if not messages:
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": INVALID_REQUEST, "message": "a batch must not be empty"},
+            }
+        replies = [reply for reply in (answer(item) for item in messages) if reply is not None]
+        # All notifications: the spec says return nothing at all.
+        return replies or None
+
+
+    for raw, truncated in _bounded_lines(stdin):
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue
+        # `truncated` comes from the reader, which counted the bytes it actually
+        # refused to read. `len(line) > MAX_LINE` is kept beside it for a line that
+        # arrives whole and is still too long, but it cannot be the only test: it
+        # counts characters and the reader counts bytes, so a multi-byte line slipped
+        # between the two and was reported as malformed JSON.
+        if truncated or len(line) > MAX_LINE:
+            # Refused before parsing. A JSON-RPC message is one line, and a caller
+            # sending a megabyte of it is not sending a request this server can answer;
+            # what it IS doing is making the decoder do unbounded work on input nobody
+            # has checked.
             send(
                 {
                     "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": exc.code, "message": exc.message},
+                    "id": None,
+                    "error": {
+                        "code": PARSE_ERROR,
+                        "message": (
+                            f"line was cut off: the limit is {MAX_LINE:,} bytes, "
+                            f"and {len(line):,} characters had been read when it was "
+                            "reached. One JSON-RPC message per line."
+                        )
+                        if truncated
+                        else (
+                            f"line is {len(line):,} characters; the limit is "
+                            f"{MAX_LINE:,}. One JSON-RPC message per line."
+                        ),
+                    },
                 }
             )
             continue
-        except Exception as exc:  # pragma: no cover - reported, never a crash
+        try:
+            message = json.loads(line)
+        # `Exception`, not `JSONDecodeError`. That is the way a line is *invalid*; it is
+        # not the only way parsing one can fail. 15,000 nested `[` raises
+        # `RecursionError` from inside the decoder - at 10,000 it returns and this
+        # server answers -32600 correctly, so the failure is a cliff rather than a
+        # shape - and it propagated out of this loop and exited the process, leaving
+        # that request and every later request unanswered.
+        except Exception as exc:  # noqa: BLE001 - a hostile line may break a parser
             send(
                 {
                     "jsonrpc": "2.0",
-                    "id": request_id,
+                    "id": None,
                     "error": {
-                        "code": INTERNAL_ERROR,
-                        "message": f"{type(exc).__name__}: {exc}",
+                        "code": PARSE_ERROR,
+                        "message": f"invalid JSON: {type(exc).__name__}: {exc}",
                     },
                 }
             )
             continue
 
-        send({"jsonrpc": "2.0", "id": request_id, "result": result})
+        if isinstance(message, list):
+            reply = batch(message)
+            if reply is not None:
+                send(reply)
+            continue
+
+        reply = answer(message)
+        if reply is not None:
+            send(reply)
 
 
 def main(argv: list[str] | None = None) -> int:

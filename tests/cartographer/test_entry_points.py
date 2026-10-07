@@ -40,12 +40,25 @@ def test_no_test_function_is_published_as_an_entry_point(graph):
     assert offenders == [], offenders
 
 
-def test_all_six_tools_are_listed_or_none_of_them_are(graph):
+def test_all_six_tools_are_reported_the_same_way(graph):
     """They are dispatched identically, so they must be reported identically.
 
-    `getattr(server, name)(arguments)` reaches all six and `entry_points` can see none
-    of it, so all six have no static caller. Three were listed and three were not, and
-    the difference was which ones a test calls by name.
+    The invariant is "all six or none". Which it is has changed twice, and both times
+    the change was a fact about the resolver rather than about the tools:
+
+      * originally three were listed and three were not, and the difference was which
+        ones a test happened to call by name - an accident of test style;
+      * then all six were listed, because `getattr(server, name)(arguments)` is the only
+        path the server itself uses and no call graph can see it;
+      * now none are, because `demo.py` calls all six by name through a parameter
+        annotated `server: ReconServer`, and an annotated parameter is a binding the
+        resolver reads.
+
+    That last one is the point of the change: an independent reviewer found all five
+    listed methods had resolvable call sites in this repository, in a list whose heading
+    is "Called by nothing in this repository" and which is the first thing `map_repo`
+    tells a newcomer. What this test pins is the consistency, and the measured side is
+    stated so that a drift back is a failure rather than a surprise.
     """
     named = {s.qualname for s in entry_points(graph)}
     tools = {
@@ -57,8 +70,11 @@ def test_all_six_tools_are_listed_or_none_of_them_are(graph):
         "riskiest_commits",
     }
     listed = {t for t in tools if any(q.endswith(f"ReconServer.{t}") for q in named)}
-    assert listed == tools, sorted(tools - listed)
-
+    assert listed in (tools, set()), sorted(listed)
+    assert listed == set(), (
+        "a tool method is back on the entry-point list; demo.py calls every one of them "
+        f"by name, so this says the resolver stopped seeing that: {sorted(listed)}"
+    )
 
 def test_a_call_from_a_test_does_not_count_as_a_caller(tmp_path: Path):
     """Driven on a repository built here, because the behaviour is the rule and the

@@ -36,10 +36,25 @@ _SEP = "\x00"
 #: plain text in argv and a NUL in the output.
 _SEP_FORMAT = "%x00"
 
+class UnreadableHistory(ValueError):
+    """`git log` produced output this parser cannot vouch for.
+
+    A `ValueError` subclass so that the two call sites that caught `ValueError` for this
+    keep working, and a named type so the tools can turn it into a tool error rather
+    than letting `-32603` carry `ValueError` to the wire.
+    """
+
+
 #: What a commit sha looks like. Checked on every record, because choosing a separator
 #: the input cannot contain is one half of parsing untrusted output and recognising
 #: what you parsed is the other. This alone would have rejected the fabricated commit.
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+#:
+#: Forty hex OR sixty-four. Git has two object formats and `--object-format=sha256`
+#: names objects with 64 characters, so a `{40}` pattern failed every record of an
+#: ordinary SHA-256 repository, `skipped` reached the record count, and the guard below
+#: told the repository it was forging its own history. One pattern, both formats, and
+#: nothing else git emits is a run of hex of either length.
+_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 SOURCE_SUFFIXES = frozenset({".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java"})
 
@@ -376,11 +391,19 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
 
         commits.append(Commit(sha=sha, author=author, when=when, subject=subject, files=files))
 
-    if skipped:  # pragma: no cover - unreachable while git refuses NUL in a message
-        raise ValueError(
-            f"{skipped} record(s) in `git log` output did not begin with a commit sha. "
-            "Something is producing separator bytes inside the log; refusing to report "
-            "a history that may contain commits this repository does not hold."
+    if skipped:
+        # No pragma. This carried `# pragma: no cover - unreachable while git refuses
+        # NUL in a message`, and it was reachable by `git init --object-format=sha256`:
+        # every record of a SHA-256 repository failed a 40-character sha pattern, and
+        # the first thing anybody saw was this sentence accusing their repository of
+        # forging its own history. A "cannot happen" note is a claim, and this one was
+        # wrong about the only input that made it happen.
+        raise UnreadableHistory(
+            f"{skipped} of {skipped + len(commits)} record(s) in `git log` output did "
+            "not begin with a commit sha, so this history cannot be reported: it may "
+            "not be the history this repository holds. Either something is producing "
+            "separator bytes inside the log, or git is naming objects in a format this "
+            "parser does not recognise."
         )
     return History(
         repo=repo.name,

@@ -890,6 +890,52 @@ def test_a_blank_confinement_root_refuses_rather_than_runs_unconfined(monkeypatc
     assert _root() is None
 
 
+def test_a_git_directory_symlink_outside_the_root_is_refused(tmp_path: Path, monkeypatch):
+    """The same redirection in the form the check did not examine.
+
+    `_confined_repository` returned early unless `.git` was a FILE, because the
+    redirection it was written for is the one-line `gitdir:` form. A `.git` that is a
+    directory symlink - a junction, on Windows - points git at another repository just
+    as effectively, and five commits from outside the root came back with the root set.
+
+    Git is asked now instead of the filesystem being read: `rev-parse
+    --absolute-git-dir` is its own answer to which repository it is about to read, after
+    every symlink, junction, `gitdir:` file and `$GIT_DIR` has been resolved.
+    """
+    import subprocess as sp
+
+    outside = tmp_path / "secret"
+    outside.mkdir()
+    sp.run(["git", "init", "-q", str(outside)], check=True, capture_output=True)
+
+    confined = tmp_path / "confined"
+    confined.mkdir()
+    (confined / "ok.py").write_text("x = 1\n", encoding="utf-8")
+    link = confined / ".git"
+    try:
+        link.symlink_to(outside / ".git", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        made = sp.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(outside / ".git")],
+            capture_output=True,
+            text=True,
+        )
+        if made.returncode != 0 or not link.exists():
+            pytest.skip("neither a directory symlink nor a junction could be created here")
+
+    assert not link.is_file(), "this test is about the form that is not a file"
+
+    monkeypatch.setenv(ROOT_ENV, str(confined))
+    server = ReconServer()
+    for tool in ("riskiest_commits", "release_readiness"):
+        with pytest.raises(ToolError) as caught:
+            getattr(server, tool)({"path": str(confined), "last": 5})
+        assert "outside" in str(caught.value), (tool, str(caught.value))
+        assert str(outside / ".git") in str(caught.value).replace("/", "\\") or str(
+            outside
+        ) in str(caught.value), (tool, str(caught.value))
+
+
 def test_a_gitfile_pointing_outside_the_root_is_refused(tmp_path: Path, monkeypatch):
     """`.git` is sometimes a file holding `gitdir: <path>` - that is how worktrees and
     submodules are laid out. `is_repository` only asked whether the entry existed, so a

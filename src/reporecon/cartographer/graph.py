@@ -470,10 +470,44 @@ def entry_points(graph: RepoGraph) -> list[Symbol]:
             continue
         if sym.kind == "class":
             continue
-        if _is_test_symbol(sym):
+        if _is_test_symbol(sym) or _is_framework_dispatched(sym):
             continue
         out.append(sym)
     return sorted(out, key=lambda s: (-s.span, s.qualname))
+
+
+def _is_framework_dispatched(sym: Symbol) -> bool:
+    """A definition a library calls by name, like a test function but for a visitor.
+
+    `ast.NodeVisitor.generic_visit` looks up `visit_<NodeType>` with `getattr`, so every
+    `visit_Call` and `visit_FunctionDef` in this package has no static caller and is
+    heavily used. They are the same case as a pytest test - reached by name from
+    outside, so "called by nothing in this repository" is true and says nothing about
+    the repository - and they are what filled the top of this list once annotated
+    parameters started resolving.
+
+    Named by convention rather than by inheritance, because the base class is often
+    imported as `ast.NodeVisitor` and the annotation is not always there. The convention
+    is strong: `visit_` followed by a capital letter is the dispatch protocol's own
+    spelling, and `generic_visit` is its fallback.
+    """
+    #: Decorators that make a definition unreachable by call syntax. A `@property` is
+    #: READ - `history.caveat`, `result.evidence` - and an attribute read is not a Call
+    #: node, so a call graph structurally cannot see a single one of its uses. Six
+    #: properties filled the top of this list once the visitor methods came off it,
+    #: every one of them read in several places. Not a door into the code.
+    attribute_read = {
+        "property",
+        "cached_property",
+        "functools.cached_property",
+        "builtins.property",
+    }
+    if any(d in attribute_read for d in sym.decorators):
+        return True
+    name = sym.qualname.rsplit(".", 1)[-1]
+    if name == "generic_visit":
+        return True
+    return name.startswith("visit_") and len(name) > 6 and name[6].isupper()
 
 
 def _is_test_module(module: str) -> bool:

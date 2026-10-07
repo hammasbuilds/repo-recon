@@ -81,6 +81,49 @@ def update_readme(output: str, mapped: dict) -> int:
     return 0
 
 
+#: Where the constructed review example is written. Under the scratch directory the
+#: demo already uses, and deleted immediately after.
+_EXAMPLE_DIR = HERE / "build" / "_demo_example"
+
+#: Four functions, each chosen for a different outcome from `review_diff`:
+#:
+#:   * `tally` mutates a shared mutable default, which is the bug;
+#:   * `count` has the same default and never mutates it, so the per-rule defeater
+#:     disproves it - the thing this tool exists to do and the thing its own published
+#:     output never showed;
+#:   * `fetch` has one the author marked `# noqa: B006`, which is an acknowledgement
+#:     rather than a disproof and is counted apart from one;
+#:   * `read_all` swallows an exception, and nothing defeats it.
+EXAMPLE_SOURCE = '''def tally(seen=[]):
+    """A shared mutable default that IS mutated: every caller sees the last call."""
+    seen.append(1)
+    return len(seen)
+
+
+def count(items=[]):
+    """The same default, never mutated. Not a bug, and a checker that says it is will
+    be ignored on the one that is."""
+    return len(items)
+
+
+def fetch(cache={}):  # noqa: B006
+    """Marked by the author, with the code of the check they silenced."""
+    cache["x"] = 1
+    return cache
+
+
+def read_all(paths):
+    """A swallowed exception with nothing to say for itself."""
+    out = []
+    for path in paths:
+        try:
+            out.append(open(path).read())
+        except Exception:
+            pass
+    return out
+'''
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     writing = "--update-readme" in argv
@@ -140,8 +183,11 @@ def _run(server: ReconServer) -> tuple[int, dict]:
     print("core modules by PageRank over the import graph:")
     for card in report["core_modules"][:5]:
         print(f"  {card['module']}")
+    # Every row the call asked for. This sliced `[:4]` after asking for `top=5`, so the
+    # published list dropped its last row silently - and a reader comparing the output
+    # with the field cannot tell a short list from a truncated one.
     print("entry points - called by nothing in this repository:")
-    for card in report["entry_points"][:4]:
+    for card in report["entry_points"]:
         print(f"  {card['qualname']}")
 
     rule("trace_impact - what breaks if this changes")
@@ -154,10 +200,17 @@ def _run(server: ReconServer) -> tuple[int, dict]:
 
     rule("check_modernisation - and what it would change")
     scan = server.check_modernisation({"path": str(HERE / "src")})
+    # `files_read`, not `files_scanned`: the second is what was found and the first is
+    # what the counts are over. This printed `files_scanned` alone, so a directory of
+    # four unparseable files read "4 files: 0 mechanical, 0 behavioural" - a clean bill
+    # of health for a scan that read nothing. The skipped count is printed when it is
+    # not zero, because a reader cannot tell 0-of-21 from 21-of-21 otherwise.
     print(
-        f"{scan['files_scanned']} files: {scan['mechanical']} mechanical, "
-        f"{scan['behavioural']} behavioural"
+        f"{scan['files_read']} of {scan['files_scanned']} files read: "
+        f"{scan['mechanical']} mechanical, {scan['behavioural']} behavioural"
     )
+    if scan["files_skipped"]:
+        print(f"  {scan['files_skipped']} skipped (unreadable, too large, or not parseable)")
     print(f"  rules available: {', '.join(scan['rules_available'])}")
     if scan["by_rule"]:
         for name, count in scan["by_rule"].items():
@@ -173,6 +226,31 @@ def _run(server: ReconServer) -> tuple[int, dict]:
     )
     for finding in review["findings"][:3]:
         print(f"  line {finding['line']}: {finding['rule']} - {finding['message']}")
+
+    # And the half of this tool that its own output never showed. Over this package the
+    # checks propose two findings and retract none, so the published demo was a disproof
+    # engine demonstrating zero disproofs - for the feature the README headlines. The
+    # machinery works; this repository is simply not the input that exercises it.
+    #
+    # A constructed example, labelled as one, because a demo of a disproof needs
+    # something to disprove. These four functions are not in this repository.
+    print()
+    print("the same checks over four functions written to exercise them:")
+    example = _EXAMPLE_DIR / "example.py"
+    example.parent.mkdir(parents=True, exist_ok=True)
+    example.write_text(EXAMPLE_SOURCE, encoding="utf-8")
+    try:
+        shown = server.review_diff({"path": str(example)})
+    finally:
+        example.unlink(missing_ok=True)
+    print(
+        f"  {shown['proposed']} proposed: {shown['confirmed']} confirmed, "
+        f"{shown['disproved']} disproved, {shown['acknowledged']} acknowledged"
+    )
+    for finding in shown["findings"]:
+        print(f"  kept     line {finding['line']}: {finding['rule']}")
+    for row in shown["retractions"]:
+        print(f"  dropped  line {row['line']}: {row['rule']} - {row['reason']}")
 
     if (HERE / ".git").exists():
         # The revision the published figures are over, which is NOT HEAD.

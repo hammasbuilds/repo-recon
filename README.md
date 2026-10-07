@@ -1,5 +1,5 @@
 <h1 align="center">repo-recon (Python · AST · MCP server · zero dependencies)</h1>
-<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and whose only subprocesses are `git log` and `git rev-parse`</i></p>
+<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and whose only subprocesses are `git log`, `git rev-parse` and `git ls-files`</i></p>
 
 <!-- mcp-name: io.github.hammasbuilds/repo-recon -->
 
@@ -94,9 +94,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.0%** bind to a
+number means anything. Of the call sites in this repository, **28.9%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **89.1%** do.
+method on a third-party object — **93.7%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -113,37 +113,48 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-46 modules, 556 symbols, 11,349 lines
-call graph: 837 of 939 in-scope calls bound to a definition here (89.1%)
-  the same number over EVERY call site, builtins included: 27.0% - which measures nothing
+52 modules, 625 symbols, 13,273 lines
+call graph: 1026 of 1095 in-scope calls bound to a definition here (93.7%)
+  the same number over EVERY call site, builtins included: 28.9% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.cartographer.parse
-  reporecon.reviewbot.checks
   reporecon.mcp_server
+  reporecon.reviewbot.checks
   reporecon.captain.risk
 entry points - called by nothing in this repository:
-  reporecon.mcp_server.ReconServer.check_modernisation
-  reporecon.mcp_server.ReconServer.review_diff
-  reporecon.mcp_server.ReconServer.riskiest_commits
-  reporecon.mcp_server.ReconServer.trace_impact
+  reporecon.reviewbot.verify.FileContext.build
+  reporecon.captain.risk.RiskFactors.explain
+  reporecon.captain.risk.RiskFactors.score
+  reporecon.cartographer.graph.RepoGraph.fan_in
+  reporecon.cartographer.report.RepoReport.to_json
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 29 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 46 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
-  hop_2: reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
+  hop_2: demo._run, reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.cartographer.test_annotated_parameters_resolve.test_a_call_on_an_annotated_parameter_resolves
+  hop_3: demo.main, tests.test_mcp_server.test_a_bad_integer_argument_says_the_range, tests.test_mcp_server.test_a_link_inside_the_root_does_not_reach_outside_it, tests.test_mcp_server.test_nothing_is_written_while_the_tools_run
 
 check_modernisation - and what it would change
 ----------------------------------------------
-21 files: 0 mechanical, 0 behavioural
+21 of 21 files read: 0 mechanical, 0 behavioural
   rules available: naive-now, pep585-generics, pep604-optional, pep604-union, utcfromtimestamp-deprecated, utcnow-deprecated
   nothing to modernise - this package is already written for 3.10+
 
 review_diff - only what survived a disproof attempt
 ---------------------------------------------------
-1 proposed, 1 confirmed, 0 retracted
-  line 863: assert-in-source - assert is removed under `python -O`, so this check may not run
+2 proposed, 2 confirmed, 0 retracted
+  line 966: assert-in-source - assert is removed under `python -O`, so this check may not run
+  line 1059: swallowed-exception - `except NotAGitRepository: return` discards the error and continues
+
+the same checks over four functions written to exercise them:
+  5 proposed: 2 confirmed, 2 disproved, 1 acknowledged
+  kept     line 1: mutable-default
+  kept     line 25: swallowed-exception
+  dropped  line 7: mutable-default - the default is never mutated inside count(); sharing it between calls cannot be observed
+  dropped  line 13: mutable-default - the author marked it: 'noqa: B006' on line 13
+  dropped  line 24: open-without-with - the handle is consumed immediately and not retained
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
@@ -178,12 +189,18 @@ a normal commit here is 118 lines across 4 files
   not from a client. This line used to read "No writes. Files are opened for reading",
   which was true of the server and false of a command this package installs.
 - **Nothing of yours is executed.** Source is parsed with `ast`; the repository under
-  analysis is never imported. Every subprocess the package starts is `git`, from two
-  call sites, with a fixed argument list and `shell=False`. The server runs four of them
-  per history call — `log`, `rev-parse --verify`, `rev-parse --absolute-git-dir` and
-  `rev-parse --is-shallow-repository` — and none at all for `map_repo`, `trace_impact`,
-  `check_modernisation` or `review_diff`. This line said "two `git` invocations", which
-  is the number of call sites in the source and not the number a call makes.
+  analysis is never imported. Every subprocess the package starts is `git`, with a fixed
+  argument list and `shell=False`. Counted by spying on `subprocess.run`, the server
+  runs **five** per history call — `rev-parse --verify`, `log`, `rev-parse
+  --absolute-git-dir`, `rev-parse --is-shallow-repository` and `ls-files -z` — and
+  **six** when `REPO_RECON_ROOT` is set, because the confinement check asks git which
+  repository it is about to read rather than parsing `.git`. None at all for `map_repo`,
+  `trace_impact`, `check_modernisation` or `review_diff`.
+
+  This line said "two `git` invocations", which is the number of call sites in the source
+  and not the number a call makes; it then said four, and `ls-files` had already made it
+  five. `tests/test_subprocess_surface.py` counts them now, so the next one to arrive
+  fails a test instead of a review.
 - **No dependencies.** Standard library only.
 - **It is not a security scanner**, and `review_diff`'s surviving findings are a filter
   on noise rather than a guarantee of correctness.

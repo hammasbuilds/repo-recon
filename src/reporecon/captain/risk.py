@@ -53,6 +53,22 @@ class RiskFactors:
         return sorted(rows, key=lambda r: -r[2])
 
 
+#: The factors scored against this repository's median rather than against the commit
+#: itself. `_log_scale(value, midpoint)` returns exactly 0.5 when the value IS the
+#: midpoint, so over a population of one - where the commit is the median - both of
+#: these are the weight times one half, for any commit of any repository. `spread` is a
+#: count of the commit's own top-level areas and `untested_source` is a share of its own
+#: files, so those two measure something whatever the population.
+#:
+#: Named here because `gate.py` guards this and `riskiest_commits` reported the same
+#: numbers with no guard at all: a measurement and its caveat in two different modules.
+RELATIVE_FACTORS = ("volume", "files")
+
+#: How many commits a repo-relative factor needs before it is a measurement. The gate
+#: uses the same number for the same reason; it is imported there rather than repeated.
+RELATIVE_MINIMUM = 3
+
+
 def _log_scale(value: float, midpoint: float) -> float:
     """Map an unbounded count onto 0-1, reaching 0.5 at `midpoint`.
 

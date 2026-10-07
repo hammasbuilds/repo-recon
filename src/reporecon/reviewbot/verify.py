@@ -12,6 +12,8 @@ most false positives are false because of something the diff did not show.
 
 from __future__ import annotations
 
+import re
+
 import ast
 from dataclasses import dataclass
 
@@ -76,14 +78,76 @@ class FileContext:
 
 # Comment markers that say the author knew. Respecting them is not politeness:
 # a reviewer that re-raises an acknowledged issue every run is noise.
-_ACKNOWLEDGED = ("noqa", "nosec", "intentional", "deliberate", "on purpose", "by design")
+#
+# Prose markers: a person writing one of these is talking about the code, not about a
+# particular checker, so they suppress any rule.
+_ACKNOWLEDGED = ("intentional", "deliberate", "on purpose", "by design")
+
+#: Suppression directives from other tools. These carry CODES, and the code says which
+#: check was silenced - so `# noqa: E501` is a statement about line length and was
+#: deleting shared-mutable-default findings, because the marker was substring-matched
+#: and the code was never read.
+_DIRECTIVES = ("noqa", "nosec", "type: ignore")
+
+#: Which other tools' codes correspond to which of this tool's rules. A coded directive
+#: suppresses only where its code is here; a BARE directive suppresses anything, which
+#: is what a bare one means in the tools it comes from.
+#:
+#: Short on purpose. A code that is not listed does not suppress, so the cost of an
+#: omission is a finding the author has to dismiss once - and the cost of the substring
+#: match it replaces was silently dropping real bugs.
+_DIRECTIVE_CODES: dict[str, frozenset[str]] = {
+    "mutable-default": frozenset({"b006", "b008", "w0102"}),
+    "bare-except": frozenset({"e722", "w0702", "w0703"}),
+    "swallowed-exception": frozenset({"b110", "b112", "s110", "w0703"}),
+    "eq-none": frozenset({"e711"}),
+    "eq-bool": frozenset({"e712"}),
+    "open-without-with": frozenset({"sim115", "r1732", "w1514"}),
+    "assert-in-source": frozenset({"s101", "b101"}),
+    "mutate-while-iterating": frozenset({"b909"}),
+}
+
+#: What a directive's codes look like after the colon: `# noqa: E501,F401`.
+_CODE = re.compile(r"[a-z]+[0-9]+")
 
 
 def _acknowledged(context: FileContext, proposal: Proposal) -> str | None:
-    comment = context.comment_near(proposal.line)
-    for marker in _ACKNOWLEDGED:
-        if marker in comment:
-            return f"the author marked it: '{marker}' on or near line {proposal.line}"
+    """Whether the author already said they know, about THIS rule.
+
+    Read from the proposal's own line and the line above it. Not the line below: a
+    comment after a statement does not acknowledge it, and `noqa`/`nosec` are
+    line-scoped in the tools they come from. A comment on the next line was retracting
+    findings about the previous one.
+    """
+    for offset in (0, -1):
+        text = context.line(proposal.line + offset)
+        if "#" not in text:
+            continue
+        comment = text.split("#", 1)[1].strip().lower()
+        where = "on" if offset == 0 else "just above"
+        for marker in _ACKNOWLEDGED:
+            if marker in comment:
+                return f"the author marked it: '{marker}' {where} line {proposal.line}"
+        for directive in _DIRECTIVES:
+            if directive not in comment:
+                continue
+            codes = set(_CODE.findall(comment.split(directive, 1)[1]))
+            if not codes:
+                # A bare directive silences everything, which is what it means.
+                return (
+                    f"the author marked it: a bare '{directive}' {where} line "
+                    f"{proposal.line}"
+                )
+            mine = _DIRECTIVE_CODES.get(proposal.rule, frozenset())
+            shared = sorted(codes & mine)
+            if shared:
+                return (
+                    f"the author marked it: '{directive}: {shared[0].upper()}' {where} "
+                    f"line {proposal.line}"
+                )
+            # A coded directive about something else. It is not about this rule, and
+            # matching it as a substring was deleting real findings: `# noqa: E501` is
+            # a line-length suppression and it retracted a shared mutable default.
     return None
 
 

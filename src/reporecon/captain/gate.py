@@ -15,7 +15,7 @@ import statistics
 from dataclasses import dataclass, field
 
 from .history import Commit, History
-from .risk import Baseline, score_commit
+from .risk import RELATIVE_MINIMUM, Baseline, score_commit
 
 PASS = "pass"
 WARN = "warn"
@@ -98,7 +98,11 @@ _RANK = {PASS: 0, NOT_MEASURED: 0, WARN: 1, BLOCK: 2}
 #: their mean, so the top is always above it by the same arithmetic. Three is the
 #: smallest number where "stands out from the rest" is a claim about the release
 #: rather than about division.
-_STANDOUT_MINIMUM = 3
+#:
+#: From `risk.py`, which needs the same number for the same reason: `riskiest_commits`
+#: reports the repo-relative factors this module guards, and two copies of a threshold
+#: are two thresholds. It was a literal 3 here while that tool had no threshold at all.
+_STANDOUT_MINIMUM = RELATIVE_MINIMUM
 
 #: How much the release's scores have to differ before "stands out from the rest" is a
 #: statement about this release. Measured as (riskiest - least risky) / riskiest.
@@ -111,7 +115,10 @@ _STANDOUT_MINIMUM = 3
 #: Five per cent, chosen on 2026-10-07 from the spread of five repositories in the
 #: author's own `D:/github` at windows of 1, 3, 5, 10 and 20 commits: the narrowest real
 #: release was 0.10 and most were 0.6 to 0.8, while every uniform fixture sits at exactly
-#: 0.00. That is evidence the threshold is not arbitrary and it is NOT a measurement
+#: 0.00. Those figures were taken with the spread measured from the MINIMUM; it is
+#: measured from the median now, which is a smaller number for the same release, and the
+#: threshold is unchanged because what it has to separate is unchanged - a release where
+#: the top commit is the median from one where it is not. That is evidence the threshold is not arbitrary and it is NOT a measurement
 #: anyone can reproduce - those are live checkouts that have moved since, and the
 #: sentence names no revision because there was no single revision to name. What can be
 #: checked is in `tests/captain/test_standout_is_measurable.py`: uniform releases are
@@ -198,7 +205,25 @@ def evaluate(
         c.touches_tests for c in history.commits
     )
     source = [c for c in commits if c.touches_source]
-    if source and not tested_anywhere:
+    if history.shallow:
+        # A `--depth 1` clone is one grafted commit that adds every tracked file, so
+        # `touches_tests` is true whenever the repository has any test file at all and
+        # this share is 0 of 1 by construction - on every shallow clone of every
+        # repository with tests. The only check that can BLOCK could not fail, and was
+        # counted among "3 of 5 checks measured something".
+        result.checks.append(
+            Check(
+                "source changes without tests",
+                NOT_MEASURED,
+                "this is a shallow clone: its one grafted commit adds every tracked "
+                "file, so it changes tests whenever this repository has any, and the "
+                "share is 0 by construction rather than by observation",
+                0.0,
+                untested_warn,
+                unit="share",
+            )
+        )
+    elif source and not tested_anywhere:
         result.checks.append(
             Check(
                 "source changes without tests",
@@ -267,7 +292,13 @@ def evaluate(
     all_scores = [score for _, score in scored]
     typical = statistics.median(all_scores)
     lowest = min(all_scores)
-    spread = (top_score - lowest) / top_score if top_score else 0.0
+    # From the MEDIAN, because the median is what the ratio below is formed against.
+    # This was `(top_score - lowest) / top_score`, which is a fact about a third number
+    # the ratio never touches: ten identical commits plus one small one has a wide
+    # spread from the minimum and a median still equal to the top, so the guard stood
+    # down and reported "36.0 against a median of 36.0 for this release (1.0x)" as a
+    # measured pass. Guard the quantity being claimed, not a neighbouring one.
+    spread = (top_score - typical) / top_score if top_score else 0.0
     absolute = _band(top_score, risk_warn, risk_block)
 
     # "Stands out from the rest of the release" needs a rest of the release. With one
@@ -304,9 +335,9 @@ def evaluate(
         )
     elif spread < _STANDOUT_SPREAD:
         cannot_compare = (
-            f"every commit in this release scores about the same "
-            f"({lowest} to {top_score}, {spread:.0%} apart), so the ratio is 1.0 by "
-            "arithmetic rather than because nothing stands out"
+            f"the top commit scores about the same as the median ({top_score} against "
+            f"{typical}, {spread:.0%} apart; the release runs {lowest} to {top_score}), "
+            "so the ratio is 1.0 by arithmetic rather than because nothing stands out"
         )
 
     if cannot_compare is not None:
@@ -339,16 +370,34 @@ def evaluate(
 
     # 3. Breadth: a release touching many areas is harder to roll back cleanly.
     areas = {a for c in commits for a in c.areas}
-    result.checks.append(
-        Check(
-            "areas touched",
-            _band(len(areas), 6, 12),
-            f"{len(areas)} top-level areas: {', '.join(sorted(areas)[:8])}",
-            float(len(areas)),
-            6,
-            unit="count",
+    if history.shallow:
+        # The grafted commit adds the whole tree, so this is the number of top-level
+        # directories in the repository and not the breadth of a release. It read
+        # "5 top-level areas: (root), .github, docs, src, tests" on a depth-1 clone of
+        # this repository, which is its layout.
+        result.checks.append(
+            Check(
+                "areas touched",
+                NOT_MEASURED,
+                "this is a shallow clone: its one grafted commit adds the whole tree, "
+                f"so these {len(areas)} areas are this repository's layout rather than "
+                "the breadth of a release",
+                float(len(areas)),
+                6,
+                unit="count",
+            )
         )
-    )
+    else:
+        result.checks.append(
+            Check(
+                "areas touched",
+                _band(len(areas), 6, 12),
+                f"{len(areas)} top-level areas: {', '.join(sorted(areas)[:8])}",
+                float(len(areas)),
+                6,
+                unit="count",
+            )
+        )
 
     # 4. Outliers relative to this repo's own habits.
     # The threshold is one such commit, not zero. Both branches reported threshold 0,
@@ -363,15 +412,24 @@ def evaluate(
     # construction, and reported as a pass. The guard written for check 2 was not
     # applied here, which is how a one-commit release and a shallow clone both read
     # "none over 254,520 lines" and passed.
-    if history.shallow or len(commits) < _STANDOUT_MINIMUM or baseline.median_churn <= 0:
+    # `history.commits`, not `commits`. The median this check compares against is
+    # `Baseline.from_history(history)` - the whole read history - while the guard counted
+    # the `since` WINDOW, so `release_readiness(path, last=2)` over a 61-commit history
+    # withdrew a check whose median rests on 61 commits and dropped a 490x-the-median
+    # commit out of the verdict. The reason it gave was false of itself: it said each
+    # commit would be compared against the median "of itself" while printing a median
+    # taken from the whole repository.
+    #
+    # Check 2's guard looks identical and is correct, because there the median IS over
+    # the window. Same shape, different populations, and this one was the copy.
+    if history.shallow or len(history.commits) < _STANDOUT_MINIMUM or baseline.median_churn <= 0:
         result.checks.append(
             Check(
                 "commits far above this repo's median",
                 NOT_MEASURED,
-                f"{len(commits)} commit(s) with a median of "
-                f"{baseline.median_churn:.0f} lines is too few to say what this "
-                "repository's habits are, and each commit would be compared against "
-                "20x the median of itself",
+                f"{len(history.commits)} commit(s) in this repository's history, with a "
+                f"median of {baseline.median_churn:.0f} lines, is too few to say what "
+                "its habits are, so there is nothing for a commit to be far above",
                 float(len(big)),
                 1,
                 unit="count",

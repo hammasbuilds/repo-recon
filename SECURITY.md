@@ -13,7 +13,7 @@
   package starts is `git`, from exactly two call sites — `captain/history.py` and
   `reviewbot/review.py` — each built as a fixed argument list with `shell=False` and a
   timeout. The server reaches only the first: `log`, `rev-parse --verify`, `rev-parse
-  --absolute-git-dir`, `rev-parse --is-shallow-repository` and `ls-files`, four or five
+  --absolute-git-dir`, `rev-parse --is-shallow-repository` and `ls-files`, five
   per history call. `git diff` is in the second and is reachable from the `review-bot`
   command line, not from any tool. Nothing interpolates your input into a command: the
   path is passed as `-C <path>`, an argument, never as text in a command string.

@@ -57,6 +57,19 @@ UNIFORM = {
     "ten identical thousand-line commits": [_commit(n, 1000, 20) for n in range(10)],
     "fifty identical realistic commits": [_commit(n, 40, 3) for n in range(50)],
     "three commits a fifth of a point apart": [_commit(n, 10 + n, 1) for n in range(3)],
+    # The case every fixture above is blind to, and the one that found the defect.
+    #
+    # The ratio this check reports is top / MEDIAN, and the guard measured dispersion
+    # from the MINIMUM. Over a perfectly uniform release those are the same number, so
+    # all four fixtures above pass with either rule and neither can be told from the
+    # other. Add one small commit and they part company: the spread from the minimum is
+    # wide, the median is still exactly the top score, and the check reported
+    # "28.5 against a median of 28.5 for this release (1.0x)" as a measured PASS -
+    # verbatim what the assertions below forbid.
+    "ten identical commits and one small one": [
+        *[_commit(n, 1000, 20) for n in range(10)],
+        _commit(99, 1, 1),
+    ],
 }
 
 
@@ -68,6 +81,11 @@ def test_a_release_whose_commits_score_alike_cannot_be_compared(release: str):
     assert "about the same" in check.detail, check.detail
     assert "against a median of" not in check.detail, check.detail
     assert "1.0x" not in check.detail, check.detail
+    # The reason names the median, because the median is the number the withheld ratio
+    # would have been formed against. It used to name the lowest score, which is a
+    # third number the ratio never touches - and that was not a wording problem: the
+    # guard was computed from that third number too.
+    assert "as the median" in check.detail, check.detail
     # And the evidence line counts it as unmeasured, which is what a caller reads to
     # decide how much the verdict is worth.
     assert [c.name for c in result.not_measured] == ["riskiest commit"]
