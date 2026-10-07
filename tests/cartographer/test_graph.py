@@ -178,12 +178,24 @@ def test_a_real_repository_resolves_most_of_its_internal_calls():
     """Pure AST resolution should bind the large majority of repo-internal calls.
 
     No embeddings, no model. If this drops sharply, resolution has regressed. The
-    floor is well under the current rate on purpose: it is a regression alarm, not a
-    pin, and pinning it would make every honest change to the denominator a failure.
+    bound is well either side of the current rate on purpose: it is a regression
+    alarm, not a pin, and pinning it would make every honest change to the denominator
+    a failure.
+
+    A BAND, not a floor. `> 0.80` alone is satisfied by 0.99, and 0.99 would mean
+    calls had gone back to leaving the denominator - which is the exact defect this
+    resolver was written to avoid, passing as an improvement. Measured 0.872 on
+    2026-10-07; the exact figures are pinned on hand-counted fixtures above, which is
+    where a number that must not move belongs.
     """
     graph = build_graph(parse_repo(REAL_REPO))
-    assert graph.resolution.repo_resolution_rate > 0.80
+    measured = graph.resolution.repo_resolution_rate
+    assert 0.80 < measured < 0.95, measured
     assert graph.resolution.in_scope_calls > 300, "too small a sample to mean anything"
+    # And the all-calls rate stays far below it, because the gap between the two is
+    # what the README's first section is about: most calls in any repository are
+    # builtins, and a rate over them measures nothing.
+    assert graph.resolution.resolution_rate < measured / 2
 
 
 def test_a_real_repositorys_ranking_is_not_uniform():
