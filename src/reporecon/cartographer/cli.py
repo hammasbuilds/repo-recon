@@ -103,7 +103,7 @@ def _compare_command(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="cartographer",
+        prog="repo-cartographer",
         description="Map an unfamiliar Python codebase from its AST.",
     )
     sub = p.add_subparsers(dest="command", required=True)

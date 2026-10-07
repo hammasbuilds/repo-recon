@@ -165,13 +165,6 @@ def test_a_non_repository_is_refused(tmp_path: Path):
         read_history(tmp_path)
 
 
-def test_co_change_pairs_files_that_move_together(repo: Path):
-    commit(repo, "one", {"src/a.py": "x=1\n", "src/b.py": "y=1\n"})
-    commit(repo, "two", {"src/a.py": "x=2\n", "src/b.py": "y=2\n"})
-    pairs = read_history(repo).co_change()
-    assert pairs["src/a.py"]["src/b.py"] == 2
-
-
 def test_a_non_ascii_filename_is_still_a_python_file(repo: Path):
     """git quotes a path containing non-ASCII bytes: `"src/caf\303\251.py"`.
 

@@ -154,6 +154,10 @@ def test_initialize_reports_the_protocol_it_was_asked_for():
 
 
 def test_an_unknown_protocol_version_gets_the_newest():
+    # Cold, because this is a test about the handshake. It used to run after `drive`'s
+    # own handshake, so it was a SECOND initialize - which is now refused, and which is
+    # the point: a re-handshake at a different version silently changed the shape of
+    # every later result in the session.
     (reply,) = drive(
         [
             {
@@ -162,7 +166,8 @@ def test_an_unknown_protocol_version_gets_the_newest():
                 "method": "initialize",
                 "params": {"protocolVersion": "1999-01-01"},
             }
-        ]
+        ],
+        handshake=False,
     )
     assert reply["result"]["protocolVersion"] == PROTOCOL_VERSIONS[0]
 
@@ -244,7 +249,8 @@ def test_structured_content_is_withheld_from_a_client_that_predates_it(repo: Pat
                 "method": "tools/call",
                 "params": {"name": "map_repo", "arguments": {"path": str(repo)}},
             },
-        ]
+        ],
+        handshake=False,
     )
     assert old["result"]["protocolVersion"] == "2024-11-05"
     assert "structuredContent" not in new["result"]
@@ -1036,19 +1042,34 @@ def test_every_pair_on_the_wire_is_a_list_not_a_tuple(tmp_path: Path):
 # It earned its place immediately: it found `parse_errors` arriving as tuples where the
 # schema says array, which the hand-rolled walker had no reason to notice.
 
-jsonschema = pytest.importorskip("jsonschema", reason="dev dependency; see [dependency-groups]")
+
+@pytest.fixture
+def jsonschema():
+    """The validator, or a skip of the two tests that use it - not of this module.
+
+    This was `jsonschema = pytest.importorskip(...)` at module level, a thousand lines
+    in. A module-level importorskip raises during COLLECTION, so a clone without the dev
+    group dropped this entire file: 174 passed and 1 skipped where the suite is 246, and
+    the 72 that disappeared were the protocol tests, the confinement tests, the
+    read-only fingerprint test and the schema sweep - everything this file exists for,
+    announced as one skip.
+
+    As a fixture, the skip lands on the two tests that need a validator and the count
+    is the count. `tests/test_suite_shape.py` keeps it that way.
+    """
+    return pytest.importorskip("jsonschema", reason="dev dependency; see [dependency-groups]")
 
 
 @pytest.mark.parametrize("tool", TOOLS, ids=lambda t: t["name"])
 @pytest.mark.parametrize("which", ["inputSchema", "outputSchema"])
-def test_the_declared_schemas_are_valid_json_schema(tool, which):
+def test_the_declared_schemas_are_valid_json_schema(jsonschema, tool, which):
     """A schema that is not valid JSON Schema is a schema no client can use."""
     schema = tool.get(which)
     assert schema is not None, f"{tool['name']} declares no {which}"
     jsonschema.Draft202012Validator.check_schema(schema)
 
 
-def test_every_output_validates_under_a_real_validator(tmp_path: Path):
+def test_every_output_validates_under_a_real_validator(jsonschema, tmp_path: Path):
     """Success, refusal and parse-error paths, against the schema each tool advertises."""
     pkg = tmp_path / "pkg"
     pkg.mkdir()

@@ -1,3 +1,25 @@
+> **This is the original README of a standalone package, kept as a record.** It was
+> written when `migration-pilot` was its own repository with its own command line, and it is not
+> documentation of what this package installs. Three kinds of thing in it do not apply
+> here:
+>
+> - **The command is named differently.** This package installs `migration-pilot`; the file
+>   below says `pilot`. Every subcommand is the same.
+> - **There is no `ui/` and no `scripts/` directory in this repository.** Lines like
+>   `python ui/server.py` or `cd ui && npm install` describe a frontend that was never
+>   part of the extracted package. What ships is the library, the command line and the
+>   MCP server.
+> - **The figures are undated and were measured over checkouts that have since moved.**
+>   They were taken over a folder of local repositories whose contents change daily, and
+>   none of them names a revision. The reproducible figures are in
+>   [the main README](../README.md), which `python demo.py` regenerates against a pinned
+>   commit.
+>
+> It is kept because the package really was standalone, the reasoning in it is the
+> reasoning behind the code, and rewriting it would make it a worse record of that.
+
+---
+
 <h1 align="center">migration-pilot</h1>
 <p align="center"><i>Modernise Python where the rewrite is provably equivalent, and refuse where it would change meaning</i></p>
 

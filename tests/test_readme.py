@@ -29,12 +29,21 @@ import pytest
 from reporecon.mcp_server import TOOLS, ReconServer
 
 ROOT = Path(__file__).resolve().parent.parent
-#: How far behind HEAD the published history figures may be before the suite asks
-#: for a re-pin. Generous on purpose: re-pinning is deliberate and a few commits of
-#: drift is the normal state between them. What this catches is a pin nobody has
-#: looked at in a long time, which the old arrangement could not have - it failed
-#: on every commit instead.
-PIN_DRIFT_LIMIT = 25
+#: How far behind HEAD the published history figures may be before the suite asks for
+#: a re-pin, as a SHARE of the history. Re-pinning is deliberate and a few commits of
+#: drift is the normal state between them; what this catches is a pin nobody has looked
+#: at in a long time, which the arrangement before it could not - it failed on every
+#: commit instead.
+#:
+#: A share rather than a count, because the figures being pinned are proportions of the
+#: history. 25 commits was the limit against a 36-commit repository, which allowed the
+#: published figures to describe under a third of it; the same 25 would be two per cent
+#: of a thousand-commit history. 20% of the history, whichever size it is.
+PIN_DRIFT_SHARE = 0.20
+
+#: And a ceiling, so the allowance does not grow without bound with the repository.
+#: At 1,000 commits, 20% is 200 - which is not "a few commits of drift" by any reading.
+PIN_DRIFT_CEILING = 40
 
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 
@@ -101,11 +110,50 @@ def test_the_readme_claims_no_test_count():
 
 
 def test_the_readme_promises_only_what_security_md_does():
-    """Both files make the same four claims, and they must not drift apart."""
+    """Both files make the same claims, and they must not drift apart."""
     security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     for claim in ("No network", "No writes", "No dependencies"):
         assert claim in prose(), f"README dropped {claim!r}"
         assert claim.lower() in security.lower(), f"SECURITY.md dropped {claim!r}"
+
+
+def test_the_no_writes_claim_is_about_the_surface_that_does_not_write():
+    """The substring was in both files and the claim was not.
+
+    The test above compares the WORDS "No writes" across the two files, which both
+    contained while the README said "Files are opened for reading" and SECURITY.md said
+    "`reporecon.pilot.apply` exists for the command line and is not reachable through
+    any tool". `pyproject.toml` installs `migration-pilot`, whose `apply --write` calls
+    `path.write_text` - so the README was making a claim about this package that a
+    command in this package contradicts.
+
+    Checked as the thing itself: the writer exists, it is in the CLI module, no tool
+    reaches it, and the README scopes the promise to the server.
+    """
+    import ast
+
+    readme = prose()
+    assert "No writes through the MCP server" in readme
+    assert "migration-pilot apply --write" in readme, (
+        "the README no longer says which surface does write"
+    )
+
+    # The writer is real and it is in the command line, not in a tool.
+    pilot_cli = (ROOT / "src" / "reporecon" / "pilot" / "cli.py").read_text(encoding="utf-8")
+    assert "write_text" in pilot_cli, "the claim describes a writer that is gone"
+    assert "migration-pilot" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    # And no module the server imports writes a file. `ast`, so a `write_text` inside a
+    # string or a comment is not a match.
+    server = ROOT / "src" / "reporecon" / "mcp_server.py"
+    tree = ast.parse(server.read_text(encoding="utf-8"))
+    writers = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", "") in ("write_text", "write_bytes", "mkdir", "unlink")
+    ]
+    assert writers == [], f"mcp_server.py writes at line(s) {writers}"
 
 
 # -- the block is the command's output, byte for byte -------------------------
@@ -331,9 +379,19 @@ def test_the_pin_has_not_fallen_far_behind_head():
     )
     assert behind.returncode == 0, behind.stderr
     distance = int(behind.stdout.strip() or 0)
-    assert distance <= PIN_DRIFT_LIMIT, (
-        f"the published history figures were measured {distance} commits ago; "
-        f"run `python demo.py --update-readme --at-head` and commit the result"
+    total = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-list", "--count", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert total.returncode == 0, total.stderr
+    history = int(total.stdout.strip())
+    allowed = min(int(history * PIN_DRIFT_SHARE), PIN_DRIFT_CEILING)
+    assert distance <= allowed, (
+        f"the published history figures were measured {distance} commits ago, which is "
+        f"{distance / history:.0%} of a {history}-commit history and the limit is "
+        f"{allowed}; run `python demo.py --update-readme --at-head` and commit the result"
     )
 
 

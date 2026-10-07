@@ -9,35 +9,41 @@ Nothing here writes to the repository. Every command is a read.
 
 from __future__ import annotations
 
+import re
 import subprocess
-from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Separators chosen because they cannot occur in a commit subject.
-_REC = "\x1e"
-_FLD = "\x1f"
+#: The field separator, and the record separator: git emits one before each commit.
+#:
+#: NUL, because a commit message cannot contain one. A commit object is a header, a
+#: blank line and the message, stored as bytes - git refuses a NUL in it rather than
+#: writing an object nothing could read back.
+#:
+#: This was `\x1e` and `\x1f`, under a comment saying they "cannot occur in a commit
+#: subject". They can: `git commit -F` writes whatever bytes it is given, and a message
+#: carrying both made `read_history` report a commit that does not exist - with a sha,
+#: an author, a date and a subject of the committer's choosing, holding the file
+#: statistics of the real commit it was glued to. `release_readiness` then named it as
+#: the riskiest change in the release.
+_SEP = "\x00"
+
+#: How the separator is written in the `--format` argument. git expands
+#: `%x00` itself, and it has to: Windows refuses to spawn a process with a
+#: NUL inside an argv entry, so passing the byte straight through raises
+#: `ValueError: embedded null character` before git is reached. The escape is
+#: plain text in argv and a NUL in the output.
+_SEP_FORMAT = "%x00"
+
+#: What a commit sha looks like. Checked on every record, because choosing a separator
+#: the input cannot contain is one half of parsing untrusted output and recognising
+#: what you parsed is the other. This alone would have rejected the fabricated commit.
+_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 SOURCE_SUFFIXES = frozenset({".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java"})
 
 DOC_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
-
-CONFIG_NAMES = frozenset(
-    {
-        "pyproject.toml",
-        "setup.py",
-        "setup.cfg",
-        "requirements.txt",
-        "uv.lock",
-        "package.json",
-        "package-lock.json",
-        "Dockerfile",
-        "docker-compose.yml",
-        ".gitignore",
-        "Makefile",
-    }
-)
 
 
 class NotAGitRepository(RuntimeError):
@@ -144,32 +150,30 @@ class History:
     #: another repository's history. Both tools reported only the name or path they
     #: were given, so the answer was that history under this directory's label.
     git_dir: str = ""
+    #: Whether this clone is truncated. A `--depth 1` clone has one commit whose parents
+    #: have been grafted away, so it holds the whole tree as a single change - and
+    #: `--no-merges` does not exclude it even when it is a merge, because a graft has no
+    #: parents to merge. Every repo-relative figure here is then computed from that one
+    #: synthetic commit: the median IS it, and the gate compares it with itself.
+    #:
+    #: Not a refusal. Asking about a shallow checkout is reasonable; answering as though
+    #: the commits that are missing are not missing is not.
+    shallow: bool = False
+
+    @property
+    def caveat(self) -> str:
+        """What a reader must be told about these commits before relying on them."""
+        if not self.shallow:
+            return ""
+        return (
+            f"this is a shallow clone: {len(self.commits)} commit(s) are present and the "
+            "rest of the history was not fetched, so every figure computed against this "
+            "repository's own median is computed against a truncated history"
+        )
 
     @property
     def source_commits(self) -> list[Commit]:
         return [c for c in self.commits if c.touches_source]
-
-    @property
-    def authors(self) -> Counter:
-        return Counter(c.author for c in self.commits)
-
-    def co_change(self) -> dict[str, Counter]:
-        """Which files change together. Coupling the import graph cannot see.
-
-        Two files that always change in the same commit are coupled even when
-        neither imports the other - a schema and its migration, a function and
-        the fixture that feeds it.
-        """
-        pairs: dict[str, Counter] = defaultdict(Counter)
-        for c in self.commits:
-            paths = [f.path for f in c.files if f.is_source or f.is_test]
-            if len(paths) < 2 or len(paths) > 30:
-                continue  # a 200-file commit couples nothing meaningfully
-            for i, a in enumerate(paths):
-                for b in paths[i + 1 :]:
-                    pairs[a][b] += 1
-                    pairs[b][a] += 1
-        return pairs
 
 
 def _git(repo: Path, *args: str, timeout: float = 120) -> str:
@@ -227,6 +231,19 @@ def _unquote(path: str) -> str:
         return raw.encode("latin-1").decode("utf-8")
     except (UnicodeDecodeError, UnicodeEncodeError):
         return body
+
+
+def is_shallow(repo: Path) -> bool:
+    """Whether this checkout is a truncated clone.
+
+    One `rev-parse`, which is why the absence of this check was an omission rather than
+    a trade: `git rev-parse --is-shallow-repository` prints true or false and has been
+    in git since 2.15.
+    """
+    try:
+        return _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true"
+    except Exception:  # pragma: no cover - a git too old to know the flag
+        return (Path(git_dir(repo) or (repo / ".git")) / "shallow").exists()
 
 
 def git_dir(repo: Path) -> str:
@@ -291,7 +308,9 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
         rev,
         "--no-merges",
         "--numstat",
-        f"--format={_REC}%H{_FLD}%an{_FLD}%aI{_FLD}%s",
+        # A leading separator before each record, so the numstat block that follows a
+        # subject belongs to it and the next record begins at the next separator.
+        f"--format={_SEP_FORMAT}%H{_SEP_FORMAT}%an{_SEP_FORMAT}%aI{_SEP_FORMAT}%s",
     ]
     if limit:
         args.append(f"-n{limit}")
@@ -299,15 +318,21 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
     raw = _git(repo, *args)
     commits: list[Commit] = []
 
-    for block in raw.split(_REC):
-        block = block.strip("\n")
-        if not block:
+    # Four fields per commit, the fourth carrying the subject and the numstat block
+    # after it. `fields[0]` is whatever precedes the first separator, which is nothing.
+    fields = raw.split(_SEP)
+    skipped = 0
+    for index in range(1, len(fields) - 3, 4):
+        sha, author, iso = fields[index], fields[index + 1], fields[index + 2]
+        subject, _, body = fields[index + 3].partition("\n")
+        subject = subject.strip("\n")
+        if not _SHA.match(sha):
+            # Not a commit. Nothing should produce this now that the separator is one
+            # git will not write into a message, and that is exactly why a record
+            # failing the check is dropped rather than repaired: the alternative is
+            # reporting a commit whose sha came from somewhere unknown.
+            skipped += 1
             continue
-        head, _, body = block.partition("\n")
-        parts = head.split(_FLD)
-        if len(parts) < 4:
-            continue
-        sha, author, iso, subject = parts[0], parts[1], parts[2], parts[3]
         try:
             when = datetime.fromisoformat(iso)
         except ValueError:
@@ -330,4 +355,15 @@ def read_history(repo: Path, limit: int | None = None, rev: str = "HEAD") -> His
 
         commits.append(Commit(sha=sha, author=author, when=when, subject=subject, files=files))
 
-    return History(repo=repo.name, commits=commits, git_dir=git_dir(repo))
+    if skipped:  # pragma: no cover - unreachable while git refuses NUL in a message
+        raise ValueError(
+            f"{skipped} record(s) in `git log` output did not begin with a commit sha. "
+            "Something is producing separator bytes inside the log; refusing to report "
+            "a history that may contain commits this repository does not hold."
+        )
+    return History(
+        repo=repo.name,
+        commits=commits,
+        git_dir=git_dir(repo),
+        shallow=is_shallow(repo),
+    )

@@ -81,6 +81,9 @@ def _compare_command(args: argparse.Namespace) -> int:
     """
     parent = Path(args.parent).resolve()
     rows = []
+    #: Every checkout that was looked at and not counted, with the reason. A survey's
+    #: denominator is part of its result.
+    excluded: list[tuple[str, str]] = []
     for d in sorted(parent.iterdir()):
         if not d.is_dir() or not is_repository(d):
             continue
@@ -91,21 +94,38 @@ def _compare_command(args: argparse.Namespace) -> int:
             # has gone, usually. Skipped in silence, the survey's denominator shrank
             # with no sign of it.
             print(f"  skipped {d.name}: {exc}", file=sys.stderr)
+            excluded.append((d.name, str(exc)))
             continue
         n = len(history.commits)
         if n < args.min_commits:
+            # Counted, not just skipped. The comment three lines up says what is wrong
+            # with a silent `continue`, and this one was silent: a reviewer pointed the
+            # command at six repositories, five fell out here, and the summary printed
+            # "mean excess over chance = +50%" over a single repository with the
+            # denominator nowhere on the page.
+            excluded.append((d.name, f"{n} commit(s), under --min-commits {args.min_commits}"))
+            continue
+        if history.shallow:
+            excluded.append((d.name, "shallow clone; its history is truncated"))
             continue
         top = min(args.top, n)
         chance = top / n
         dis = rank_disagreement(history, top=top)
         if dis:
             rows.append((d.name, n, chance, dis))
+        else:
+            excluded.append((d.name, "no ranking could be computed"))
+
+    if excluded:
+        print(f"\n{len(excluded)} of {len(excluded) + len(rows)} checkout(s) not surveyed:")
+        for name, why in sorted(excluded):
+            print(f"  {name:26s} {why}")
 
     if not rows:
         print("no repositories with enough history")
         return 0
 
-    print(f"{'repo':26s} {'n':>3s} {'chance':>7s} {'c/f':>6s} {'c/s':>6s} {'f/s':>6s}")
+    print(f"\n{'repo':26s} {'n':>3s} {'chance':>7s} {'c/f':>6s} {'c/s':>6s} {'f/s':>6s}")
     print("-" * 62)
     for name, n, chance, dis in sorted(rows, key=lambda r: -r[1]):
         print(
@@ -117,7 +137,18 @@ def _compare_command(args: argparse.Namespace) -> int:
     print("-" * 62)
     for key in ("churn vs files", "churn vs spread", "files vs spread"):
         excess = [dis[key] - chance for _, _, chance, dis in rows]
-        print(f"{key:18s} mean excess over chance = {sum(excess) / len(excess):+.0%}")
+        # The n is part of the figure. A mean over one repository and a mean over
+        # seventy-five are different claims and read identically without it.
+        print(
+            f"{key:18s} mean excess over chance = {sum(excess) / len(excess):+.0%} "
+            f"over {len(rows)} repositor{'y' if len(rows) == 1 else 'ies'}"
+        )
+    if len(rows) < 3:
+        print(
+            f"\n{len(rows)} repositor{'y' if len(rows) == 1 else 'ies'} is not a survey. "
+            "The means above are printed because they were computed, not because they "
+            "mean anything at this size."
+        )
     return 0
 
 
@@ -135,7 +166,7 @@ def _rank_command(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="captain",
+        prog="release-captain",
         description="Release readiness from diff statistics, not from opinion.",
     )
     sub = p.add_subparsers(dest="command", required=True)

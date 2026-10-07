@@ -100,17 +100,44 @@ def _build_import_index(repo: ParsedRepo) -> dict[str, dict[str, str]]:
     index[M]["parse_repo"] = "cartographer.parse".
     """
     index: dict[str, dict[str, str]] = defaultdict(dict)
+    #: Every module in this repository, so an imported name that IS a module can be
+    #: recognised as one.
+    modules = {m.module for m in repo.modules}
     for mod in repo.modules:
         for imp in mod.imports:
             if not imp.is_internal or not imp.target:
                 continue
-            for name in imp.names:
+            originals = imp.originals or imp.names
+            for name, original in zip(imp.names, originals, strict=False):
                 if name == "*":
                     continue
-                index[mod.module][name] = imp.target
+                # `from pkg import lib` binds a MODULE, and `lib.helper()` then has to
+                # resolve through `pkg.lib`. This mapped `lib -> pkg`, so the lookup was
+                # for `pkg.helper`, which is not a symbol anywhere.
+                submodule = f"{imp.target}.{original}"
+                index[mod.module][name] = submodule if submodule in modules else imp.target
             # `import pkg.mod` binds the head name to the dotted path.
             if not imp.is_relative and "." not in "".join(imp.names):
                 index[mod.module][imp.target.split(".")[0]] = imp.target
+    return index
+
+
+def _build_alias_index(repo: ParsedRepo) -> dict[str, dict[str, str]]:
+    """Per module, map a locally-bound name to the name it has where it is defined.
+
+    Only the names that were renamed on import. `from pkg.lib import helper as h` in
+    module M yields index[M]["h"] = "helper", and the resolver looks the definition up
+    under that - it was looking for a symbol called `h` in `pkg.lib`, which no module
+    calls its own function.
+    """
+    index: dict[str, dict[str, str]] = defaultdict(dict)
+    for mod in repo.modules:
+        for imp in mod.imports:
+            if not imp.is_internal or not imp.target or not imp.originals:
+                continue
+            for name, original in zip(imp.names, imp.originals, strict=False):
+                if name != original and name != "*":
+                    index[mod.module][name] = original
     return index
 
 
@@ -252,6 +279,7 @@ def _enclosing_class(caller: str, classes: set[str]) -> str | None:
 def resolve(repo: ParsedRepo) -> Resolution:
     """Bind every call site we can to a definition in this repo."""
     imports = _build_import_index(repo)
+    aliases = _build_alias_index(repo)
     mod_syms = _module_symbol_index(repo)
     cls_methods = _class_method_index(repo)
     externals = _external_names(repo)
@@ -269,6 +297,7 @@ def resolve(repo: ParsedRepo) -> Resolution:
     for mod in repo.modules:
         local = mod_syms.get(mod.module, {})
         imported = imports.get(mod.module, {})
+        renamed = aliases.get(mod.module, {})
         external = externals.get(mod.module, set())
         internal_names = set(local) | set(imported)
         # (scope, name) -> the class it was built from, within this module.
@@ -295,12 +324,27 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 if target is None:
                     target = local.get(head)
                 if target is None and head in imported:
-                    target = _follow_reexports(imported[head], head, imports, by_qualname)
+                    # Under the name the defining module uses, which is not the name
+                    # written here when the import renamed it.
+                    target = _follow_reexports(
+                        imported[head], renamed.get(head, head), imports, by_qualname
+                    )
             else:
                 # Dotted: module.func, or Class.method via an import.
                 first = rest.split(".")[0]
                 if head in imported:
                     target = _follow_reexports(imported[head], first, imports, by_qualname)
+                    if target is None and head in renamed:
+                        # `from pkg import lib as l` then `l.helper()`: the module was
+                        # found under its own name, and `first` is already the name the
+                        # module uses, so only the head needed translating - but a
+                        # renamed CLASS reaches here too, and that one needs the
+                        # original to find its methods.
+                        owner = _follow_reexports(
+                            imported[head], renamed[head], imports, by_qualname
+                        )
+                        if owner is not None:
+                            target = cls_methods.get(owner.qualname, {}).get(first)
                 if target is None and head in local:
                     # Class defined here, method called on it.
                     target = cls_methods.get(local[head].qualname, {}).get(first)
@@ -312,7 +356,9 @@ def resolve(repo: ParsedRepo) -> Resolution:
                             by_qualname.get(imported[cls]) if cls in imported else None
                         )
                         if owner is None and cls in imported:
-                            owner = _follow_reexports(imported[cls], cls, imports, by_qualname)
+                            owner = _follow_reexports(
+                                imported[cls], renamed.get(cls, cls), imports, by_qualname
+                            )
                         if owner is not None:
                             target = cls_methods.get(owner.qualname, {}).get(first)
 

@@ -139,12 +139,55 @@ def _history(commits: list[Commit]) -> History:
 
 
 def test_all_source_commits_untested_blocks():
-    h = _history([make(str(i), "x", [("src/a.py", 50, 0)]) for i in range(3)])
-    result = evaluate(h)
+    """A release that ships source without tests, in a repository that HAS tests.
+
+    The fixture used to be three untested commits and nothing else, which is a
+    repository with no test suite - and that reads 100% untested on every release it
+    will ever have, so this check answered NO-GO to every question about such a
+    repository forever. That is now a check of its own ("no tests in this repository"),
+    and this one measures the release, so its fixture has to contain a test file for
+    the share to be a share of anything.
+    """
+    h = _history(
+        [make("0", "x", [("src/a.py", 50, 0), ("tests/test_a.py", 5, 0)])]
+        + [make(str(i), "x", [("src/a.py", 50, 0)]) for i in range(1, 7)]
+    )
+    result = evaluate(h, since=6)
     check = next(c for c in result.checks if c.name == "source changes without tests")
-    assert check.status == BLOCK
+    assert check.status == BLOCK, check
+    # 5 of the 6 in range, the sixth being the commit that brought the test file -
+    # which is what makes this a release of a repository that has tests.
+    assert check.observed > 0.8, check
     assert result.blocked
     assert result.verdict == "NO-GO"
+
+
+def test_a_repository_with_no_tests_at_all_is_a_finding_not_a_verdict():
+    """It was the only path to BLOCK, so it answered NO-GO to every release forever.
+
+    "This release shipped source without tests" is a reading of the release. "This
+    repository has no tests" is a fact about the project, and it is 100% untested on
+    every release by construction - a rate over an empty population, where the
+    denominator is the test files that exist. They are two statements and they now have
+    two checks, so a reader is told the second once, by name, instead of being handed a
+    permanent NO-GO.
+    """
+    h = _history([make(str(i), "x", [("src/a.py", 50, 0)]) for i in range(3)])
+    result = evaluate(h)
+
+    share = next(c for c in result.checks if c.name == "source changes without tests")
+    assert share.status == NOT_MEASURED, share
+    assert "by construction rather than by observation" in share.detail
+
+    finding = next(c for c in result.checks if c.name == "no tests in this repository")
+    assert finding.status == WARN, finding
+    assert "every release this repository will have" in finding.detail
+
+    assert not result.blocked
+    assert result.verdict == "GO WITH WARNINGS"
+    # The standout check is unmeasured too, for its own reason: three commits of the
+    # same shape score alike. Both are named, so neither hides behind the other.
+    assert "source changes without tests" in [c.name for c in result.not_measured]
 
 
 def test_well_tested_small_release_passes():
@@ -171,10 +214,22 @@ def test_every_check_reports_what_it_saw():
     answer there and the assertion excluded it, so the test was keeping the
     self-comparison in place.
     """
-    commits = [make(str(i), "x", [("src/a.py", 10 + i, 0), ("tests/t.py", 1, 0)]) for i in range(4)]
-    for check in evaluate(_history(commits)).checks:
+    # Varied, not just numerous. Four commits of 10, 11, 12 and 13 lines are four
+    # commits that score the same to within a fifth of a point, and the standout check
+    # correctly reports NOT_MEASURED over them - "enough commits for every check to
+    # have something to look at" is a statement about the SPREAD of the release, not
+    # about its length, which is the whole of the defect this check has been through.
+    commits = [
+        make("a", "x", [("src/a.py", 4, 0), ("tests/t.py", 1, 0)]),
+        make("b", "x", [("src/b.py", 30, 2), ("tests/t.py", 3, 0)]),
+        make("c", "x", [("src/c.py", 120, 10), ("tests/t.py", 8, 0)]),
+        make("d", "x", [("src/d.py", 800, 40)] + [(f"src/n{i}.py", 50, 0) for i in range(8)]),
+    ]
+    result = evaluate(_history(commits))
+    for check in result.checks:
         assert check.detail
         assert check.status in (PASS, WARN, BLOCK), check
+    assert result.not_measured == [], result.evidence
 
 
 def test_a_release_of_one_commit_does_not_compare_it_with_itself():
@@ -190,13 +245,36 @@ def test_a_release_of_one_commit_does_not_compare_it_with_itself():
     assert "against a median of" not in standout.detail
     assert [c.name for c in one.not_measured] == ["riskiest commit"]
 
-    # Three is where it starts saying something.
-    three = evaluate(
+    # Three commits is enough to HAVE a rest of the release; it is not enough on its
+    # own. These three differ by 0.2 of a point, so the ratio is 1.01 - which this test
+    # used to accept as "where it starts saying something", and which an independent
+    # reviewer reported as the comparison still being meaningless at the smallest size
+    # the guard allows. The release has to vary before a ratio over it is evidence.
+    alike = evaluate(
         _history(
             [make(str(i), "x", [("src/a.py", 10 + i, 0), ("tests/t.py", 1, 0)]) for i in range(3)]
         )
     )
-    assert next(c for c in three.checks if c.name == "riskiest commit").status != NOT_MEASURED
+    standout = next(c for c in alike.checks if c.name == "riskiest commit")
+    assert standout.status == NOT_MEASURED, standout
+    assert "about the same" in standout.detail, standout.detail
+
+    # And a release that does vary says something.
+    varied = evaluate(
+        _history(
+            [
+                make("a", "x", [("src/a.py", 2, 0), ("tests/t.py", 1, 0)]),
+                make("b", "x", [("src/b.py", 40, 0), ("tests/t.py", 1, 0)]),
+                make(
+                    "c", "x", [("src/c.py", 900, 0)] + [(f"src/m{i}.py", 60, 0) for i in range(9)]
+                ),
+            ]
+        )
+    )
+    measured = next(c for c in varied.checks if c.name == "riskiest commit")
+    assert measured.status != NOT_MEASURED, measured
+    assert measured.unit == "ratio", measured
+    assert "against a median of" in measured.detail, measured.detail
 
 
 def test_the_absolute_band_still_fires_on_a_single_alarming_commit():

@@ -39,10 +39,14 @@ class Check:
     detail: str
     observed: float
     threshold: float
-
-    @property
-    def ok(self) -> bool:
-        return self.status == PASS
+    #: What `observed` and `threshold` are counted in. The riskiest-commit check
+    #: reports a RATIO when the release can support a comparison and a risk SCORE when
+    #: it cannot, and both used to arrive as a bare number under one field name - so a
+    #: client graphing `observed` across two calls plotted 1.54 (a ratio) next to 36.0
+    #: (a score) and the schema said only "the observed value compared with the
+    #: threshold". Naming the unit is cheaper than splitting the field, and it makes
+    #: the two branches distinguishable without reading this module.
+    unit: str = "score"
 
 
 @dataclass
@@ -59,10 +63,6 @@ class GateResult:
     @property
     def warnings(self) -> list[Check]:
         return [c for c in self.checks if c.status == WARN]
-
-    @property
-    def blockers(self) -> list[Check]:
-        return [c for c in self.checks if c.status == BLOCK]
 
     @property
     def not_measured(self) -> list[Check]:
@@ -97,6 +97,17 @@ _RANK = {PASS: 0, NOT_MEASURED: 0, WARN: 1, BLOCK: 2}
 #: rather than about division.
 _STANDOUT_MINIMUM = 3
 
+#: How much the release's scores have to differ before "stands out from the rest" is a
+#: statement about this release. Measured as (riskiest - least risky) / riskiest.
+#:
+#: A count was the wrong guard. `_log_scale` returns 0.5 at the median, so in a
+#: homogeneous history volume and files carry no information and every commit scores
+#: the same - ten identical commits report "36.0 against a median of 36.0 (1.0x)" and
+#: pass, at any length. Five per cent admits every real release measured while writing
+#: this (the narrowest of five local repositories at three commits is 0.10, and most
+#: are 0.6 to 0.8) and rejects the uniform ones, which sit at exactly 0.00.
+_STANDOUT_SPREAD = 0.05
+
 
 def _band(value: float, warn_at: float, block_at: float) -> str:
     if value >= block_at:
@@ -127,7 +138,9 @@ def evaluate(
     result = GateResult(repo=history.repo, commits_considered=len(commits))
 
     if not commits:
-        result.checks.append(Check("nothing to release", BLOCK, "no commits in range", 0, 1))
+        result.checks.append(
+            Check("nothing to release", BLOCK, "no commits in range", 0, 1, unit="count")
+        )
         return result
 
     scored = sorted(
@@ -137,8 +150,42 @@ def evaluate(
     result.riskiest = scored[:10]
 
     # 1. Source changes shipping without any test change.
+    #
+    # Two different statements used to come out of one band. "This release changed
+    # source without touching tests" is a reading of the release; "this repository has
+    # no tests" is a fact about the project, and it reads as 100% untested on every
+    # release it will ever have - so the only check that can BLOCK answered NO-GO to
+    # every question anyone asked about such a repository, permanently, which is not a
+    # release decision. It is also a rate over an empty population: the denominator of
+    # "did this change bring tests" is the test files that exist.
+    tested_anywhere = any(c.touches_tests for c in history.commits)
     source = [c for c in commits if c.touches_source]
-    if source:
+    if source and not tested_anywhere:
+        result.checks.append(
+            Check(
+                "source changes without tests",
+                NOT_MEASURED,
+                f"no test file appears anywhere in the {len(history.commits)} commit(s) "
+                "read, so this release reads 100% untested by construction rather than "
+                "by observation; see the check below",
+                1.0,
+                untested_warn,
+                unit="share",
+            )
+        )
+        result.checks.append(
+            Check(
+                "no tests in this repository",
+                WARN,
+                f"no test file appears in any of the {len(history.commits)} commit(s) "
+                "read. That is worth knowing and it is not a judgement of this release: "
+                "it is the same on every release this repository will have",
+                1.0,
+                1,
+                unit="count",
+            )
+        )
+    elif source:
         untested = [c for c in source if not c.touches_tests]
         share = len(untested) / len(source)
         result.checks.append(
@@ -148,6 +195,7 @@ def evaluate(
                 f"{len(untested)} of {len(source)} source-changing commits changed no test file",
                 round(share, 3),
                 untested_warn,
+                unit="share",
             )
         )
     else:
@@ -158,6 +206,7 @@ def evaluate(
                 "no source changes in range, so test coupling was not observed",
                 0.0,
                 untested_warn,
+                unit="share",
             )
         )
 
@@ -173,7 +222,10 @@ def evaluate(
     # the release. The absolute band is kept as a floor, so a release where everything
     # is alarming is not passed for being uniformly alarming.
     top_commit, top_score = scored[0]
-    typical = statistics.median(score for _, score in scored)
+    all_scores = [score for _, score in scored]
+    typical = statistics.median(all_scores)
+    lowest = min(all_scores)
+    spread = (top_score - lowest) / top_score if top_score else 0.0
     absolute = _band(top_score, risk_warn, risk_block)
 
     # "Stands out from the rest of the release" needs a rest of the release. With one
@@ -188,20 +240,42 @@ def evaluate(
     # nothing to look at" - and was not being applied here. The absolute band stays
     # live, so a single alarming commit is still caught; what is withdrawn is the
     # comparison, not the check.
+    # Why the comparison cannot be made, or None if it can. Three reasons rather than
+    # one, because they are three different facts about the release and a reader acting
+    # on "not measured" needs to know which: too few commits to have a rest; a median of
+    # zero, against which every number is infinitely large; and scores so alike that the
+    # ratio is arithmetic rather than evidence.
+    cannot_compare: str | None = None
     if len(scored) < _STANDOUT_MINIMUM:
+        cannot_compare = (
+            f"{len(scored)} commit(s) is too few to say whether it stands out from the release"
+        )
+    elif typical <= 0:
+        cannot_compare = (
+            "the median commit in this release scores 0.0, and every number is "
+            "infinitely above zero"
+        )
+    elif spread < _STANDOUT_SPREAD:
+        cannot_compare = (
+            f"every commit in this release scores about the same "
+            f"({lowest} to {top_score}, {spread:.0%} apart), so the ratio is 1.0 by "
+            "arithmetic rather than because nothing stands out"
+        )
+
+    if cannot_compare is not None:
         result.checks.append(
             Check(
                 "riskiest commit",
                 NOT_MEASURED if absolute == PASS else absolute,
                 f"{top_score} - {top_commit.sha[:8]} {top_commit.subject[:60]}; "
-                f"{len(scored)} commit(s) is too few to say whether it stands out "
-                f"from the release, so only the absolute band was applied",
+                f"{cannot_compare}, so only the absolute band was applied",
                 top_score,
                 risk_warn,
+                unit="score",
             )
         )
     else:
-        ratio = top_score / typical if typical else 1.0
+        ratio = top_score / typical
         standout = _band(ratio, stands_out_warn, stands_out_block)
         verdict = standout if _RANK[standout] >= _RANK[absolute] else absolute
         result.checks.append(
@@ -212,6 +286,7 @@ def evaluate(
                 f"({ratio:.1f}x) - {top_commit.sha[:8]} {top_commit.subject[:60]}",
                 round(ratio, 2),
                 stands_out_warn,
+                unit="ratio",
             )
         )
 
@@ -224,6 +299,7 @@ def evaluate(
             f"{len(areas)} top-level areas: {', '.join(sorted(areas)[:8])}",
             float(len(areas)),
             6,
+            unit="count",
         )
     )
 
@@ -247,6 +323,7 @@ def evaluate(
             ),
             float(len(big)),
             1,
+            unit="count",
         )
     )
 

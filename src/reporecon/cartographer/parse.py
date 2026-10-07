@@ -74,10 +74,15 @@ class ImportEdge:
 
     module: str  # the importing module
     target: str  # the imported module, absolute where resolvable
-    names: tuple[str, ...]  # names pulled into scope ("*" for star-imports)
+    names: tuple[str, ...]  # names BOUND in the importing module ("*" for star-imports)
     line: int
     is_relative: bool
     is_internal: bool  # target lives inside this repo
+    #: The names as written in the module imported from, where they differ from the
+    #: names bound here. `from pkg.lib import helper as h` binds `h` and comes from
+    #: `helper`, and a resolver needs both: the first to match what the call site wrote,
+    #: the second to find the definition.
+    originals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -363,7 +368,12 @@ class _Visitor(ast.NodeVisitor):
             ImportEdge(
                 module=self.module,
                 target=target,
-                names=tuple(a.name for a in node.names),
+                # The name BOUND here, which is the asname when there is one. This read
+                # `a.name` - the name in the module being imported from - so
+                # `from pkg.lib import helper as h` put `helper` in the index while the
+                # call site writes `h()`, and the call resolved to nothing.
+                names=tuple(a.asname or a.name for a in node.names),
+                originals=tuple(a.name for a in node.names),
                 line=node.lineno,
                 is_relative=is_relative,
                 is_internal=is_relative or self._is_internal(target),

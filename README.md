@@ -94,9 +94,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **25.9%** bind to a
+number means anything. Of the call sites in this repository, **27.0%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **87.2%** do.
+method on a third-party object — **88.9%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -113,14 +113,14 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-35 modules, 480 symbols, 9,273 lines
-call graph: 673 of 772 in-scope calls bound to a definition here (87.2%)
-  the same number over EVERY call site, builtins included: 25.9% - which measures nothing
+45 modules, 546 symbols, 10,961 lines
+call graph: 814 of 916 in-scope calls bound to a definition here (88.9%)
+  the same number over EVERY call site, builtins included: 27.0% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
-  reporecon.reviewbot.checks
   reporecon.cartographer.parse
-  reporecon.pilot.rules
+  reporecon.reviewbot.checks
+  reporecon.mcp_server
   reporecon.captain.risk
 entry points - called by nothing in this repository:
   tests.test_mcp_server.test_no_tool_writes_anything_under_the_repository_it_is_given
@@ -130,7 +130,7 @@ entry points - called by nothing in this repository:
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 22 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 26 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
   hop_2: reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.test_mcp_server.test_a_unique_name_is_not_ambiguous_with_its_longer_neighbour
 
@@ -143,7 +143,7 @@ check_modernisation - and what it would change
 review_diff - only what survived a disproof attempt
 ---------------------------------------------------
 1 proposed, 1 confirmed, 0 retracted
-  line 754: assert-in-source - assert is removed under `python -O`, so this check may not run
+  line 826: assert-in-source - assert is removed under `python -O`, so this check may not run
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
@@ -168,8 +168,15 @@ a normal commit here is 118 lines across 4 files
 ## What it will not do
 
 - **No network.** Nothing opens a socket.
-- **No writes.** Files are opened for reading. The migration tool *finds* edits and does
-  not apply them.
+- **No writes through the MCP server.** Every one of the six tools opens files for
+  reading, and `tests/test_mcp_server.py` proves it rather than asserting it: it
+  fingerprints every file under a repository by size and modification time, calls all
+  six tools, and diffs. `check_modernisation` *finds* edits and no tool applies them.
+
+  The command line is a different surface. `migration-pilot apply --write` rewrites the
+  files it was pointed at - that is what it is for - and it is reachable from a shell,
+  not from a client. This line used to read "No writes. Files are opened for reading",
+  which was true of the server and false of a command this package installs.
 - **Nothing of yours is executed.** Source is parsed with `ast`; the repository under
   analysis is never imported. The only subprocesses are two `git` invocations with fixed
   argument lists.

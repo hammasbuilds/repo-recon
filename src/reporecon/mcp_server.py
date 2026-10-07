@@ -69,6 +69,23 @@ BEFORE_INITIALIZE = ("initialize", "ping")
 # structuredContent arrived in 2025-06-18; older clients get the text block only.
 _STRUCTURED = {"2025-11-25", "2025-06-18"}
 
+#: Tool fields that did not exist before 2025-06-18. A client negotiating an older
+#: version is told about a tool in the vocabulary of that version, because advertising
+#: `outputSchema` to a client that will never be sent `structuredContent` is promising
+#: something this server then withholds - the asymmetry `serve`'s own comment says was
+#: removed, left in place on the negotiated path.
+_FIELDS_ADDED_IN_2025_06_18 = ("outputSchema", "title", "annotations")
+
+
+def _tools_for(protocol: str | None) -> list[dict]:
+    """The tool list as the negotiated version defines it."""
+    if protocol in _STRUCTURED:
+        return TOOLS
+    return [
+        {k: v for k, v in tool.items() if k not in _FIELDS_ADDED_IN_2025_06_18} for tool in TOOLS
+    ]
+
+
 SERVER_NAME = "repo-recon"
 ROOT_ENV = "REPO_RECON_ROOT"
 
@@ -81,6 +98,17 @@ INTERNAL_ERROR = -32603
 # A repository, not a disk. Walking an unbounded tree is how this becomes a way to
 # read every file on a machine, and how one call takes a minute.
 FILE_LIMIT = 4_000
+
+#: The longest line this server will parse, in characters. A JSON-RPC message is a
+#: line, and the longest legitimate one here is a `tools/call` with a path and a few
+#: scalars - kilobytes, not megabytes. Without a cap, `for raw in stdin` buffers
+#: whatever arrives: a 64 MB `path` was accepted, resolved and echoed back in an error
+#: message, and a 30 KB line of nested brackets ended the process.
+MAX_LINE = 1_000_000
+
+#: The longest a single tool argument may be. `_string` has enforced this since it was
+#: written; `path` went around it, because it is read by `_path` instead.
+ARGUMENT_LIMIT = 4_000
 # Per-file, so one generated module cannot dominate a result.
 SOURCE_LIMIT = 2_000_000
 LIST_LIMIT = 200
@@ -497,6 +525,22 @@ TOOLS: list[dict[str, Any]] = [
                 "because a verdict about this commit and one about a commit three "
                 "weeks ago are different claims and read identically without it.",
             },
+            "shallow": {
+                "type": "boolean",
+                "description": "Whether this checkout is a truncated clone. A "
+                "`--depth 1` clone holds one commit whose parents have been grafted "
+                "away, so it carries the whole tree as a single change - and "
+                "`--no-merges` does not exclude it even when it is a merge, because a "
+                "graft has no parents. Every figure computed against this repository's "
+                "own median is then computed against that one synthetic commit. True "
+                "does not mean the result is wrong; it means it describes the commits "
+                "that were fetched.",
+            },
+            "caveat": {
+                "type": "string",
+                "description": "What a reader must be told about these commits before "
+                "relying on them, or empty. Non-empty for a shallow clone.",
+            },
             "git_dir": {
                 "type": "string",
                 "description": "The git directory the commits were read from. "
@@ -536,13 +580,25 @@ TOOLS: list[dict[str, Any]] = [
                         "detail": {"type": "string"},
                         "observed": {
                             "type": "number",
-                            "description": "What this check measured. The status is this "
-                            "compared with `threshold`, so a caller can disagree with the "
-                            "threshold and still use the number.",
+                            "description": "What this check measured, in the unit `unit` "
+                            "names. The status is this compared with `threshold`, so a "
+                            "caller can disagree with the threshold and still use the "
+                            "number.",
                         },
                         "threshold": {
                             "type": "number",
-                            "description": "The value `observed` had to stay under to pass.",
+                            "description": "The value `observed` had to stay under to pass, "
+                            "in the same unit.",
+                        },
+                        "unit": {
+                            "type": "string",
+                            "enum": ["score", "ratio", "share", "count"],
+                            "description": "What `observed` and `threshold` are counted "
+                            "in. The riskiest-commit check reports a RATIO when the "
+                            "release can support a comparison and a risk SCORE when it "
+                            "cannot, so two calls can return the same field in different "
+                            "units; without this a client graphing `observed` plots 36.0 "
+                            "against 1.54.",
                         },
                     },
                     "required": ["name", "status"],
@@ -595,6 +651,22 @@ TOOLS: list[dict[str, Any]] = [
                 "description": "The full sha the history was read up to. A ranking is "
                 "a different set after every push, and this tool accepted `rev` "
                 "without ever saying which revision it answered.",
+            },
+            "shallow": {
+                "type": "boolean",
+                "description": "Whether this checkout is a truncated clone. A "
+                "`--depth 1` clone holds one commit whose parents have been grafted "
+                "away, so it carries the whole tree as a single change - and "
+                "`--no-merges` does not exclude it even when it is a merge, because a "
+                "graft has no parents. Every figure computed against this repository's "
+                "own median is then computed against that one synthetic commit. True "
+                "does not mean the result is wrong; it means it describes the commits "
+                "that were fetched.",
+            },
+            "caveat": {
+                "type": "string",
+                "description": "What a reader must be told about these commits before "
+                "relying on them, or empty. Non-empty for a shallow clone.",
             },
             "git_dir": {
                 "type": "string",
@@ -837,6 +909,15 @@ def _resolve(value: Any, *, name: str = "path", want: str = "any") -> Path:
         raise ToolError(f"'{name}' must be a string, got {type(value).__name__}")
     if not value.strip():
         raise ToolError(f"'{name}' was given but is empty; it needs a path")
+    if len(value) > ARGUMENT_LIMIT:
+        # Capped like every other argument. `_string` has enforced this since it was
+        # written and `path` went around it, because it comes through here instead: a
+        # 64 MB path was accepted, resolved, and echoed back whole in the error below.
+        # The echo is what makes the absence of a cap an amplifier rather than a waste.
+        raise ToolError(
+            f"'{name}' is {len(value):,} characters; the limit is {ARGUMENT_LIMIT:,}. "
+            "No path on any filesystem is that long."
+        )
     path = Path(value).expanduser()
     try:
         path = path.resolve(strict=True)
@@ -1207,6 +1288,12 @@ class ReconServer:
             "rev": rev,
             # And WHICH repository they are over, which is not always the one named.
             "git_dir": history.git_dir,
+            # A truncated clone answers every repo-relative question against the
+            # commits it happens to hold, and said nothing about it. Both workflow
+            # files in this repository set `fetch-depth: 0` because of this, so the
+            # hazard was known to the people who wrote it and not to a caller.
+            "shallow": history.shallow,
+            "caveat": history.caveat,
             "evidence": result.evidence,
             "checks_measured": len(result.checks) - len(result.not_measured),
             "checks_total": len(result.checks),
@@ -1240,6 +1327,12 @@ class ReconServer:
             # nothing.
             "repo": root.name,
             "git_dir": history.git_dir,
+            # A truncated clone answers every repo-relative question against the
+            # commits it happens to hold, and said nothing about it. Both workflow
+            # files in this repository set `fetch-depth: 0` because of this, so the
+            # hazard was known to the people who wrote it and not to a caller.
+            "shallow": history.shallow,
+            "caveat": history.caveat,
             # What the ranking is over. A repository's riskiest commits are a
             # different set after every push, so a ranking that is going to be written
             # down has to name the commit it was taken at - the same reason
@@ -1304,14 +1397,42 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
         line = raw.decode("utf-8", errors="replace").strip()
         if not line:
             continue
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError as exc:
+        if len(line) > MAX_LINE:
+            # Refused before parsing. A JSON-RPC message is one line, and a caller
+            # sending a megabyte of it is not sending a request this server can answer;
+            # what it IS doing is making the decoder do unbounded work on input nobody
+            # has checked.
             send(
                 {
                     "jsonrpc": "2.0",
                     "id": None,
-                    "error": {"code": PARSE_ERROR, "message": f"invalid JSON: {exc}"},
+                    "error": {
+                        "code": PARSE_ERROR,
+                        "message": (
+                            f"line is {len(line):,} characters; the limit is "
+                            f"{MAX_LINE:,}. One JSON-RPC message per line."
+                        ),
+                    },
+                }
+            )
+            continue
+        try:
+            message = json.loads(line)
+        # `Exception`, not `JSONDecodeError`. That is the way a line is *invalid*; it is
+        # not the only way parsing one can fail. 15,000 nested `[` raises
+        # `RecursionError` from inside the decoder - at 10,000 it returns and this
+        # server answers -32600 correctly, so the failure is a cliff rather than a
+        # shape - and it propagated out of this loop and exited the process, leaving
+        # that request and every later request unanswered.
+        except Exception as exc:  # noqa: BLE001 - a hostile line may break a parser
+            send(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {
+                        "code": PARSE_ERROR,
+                        "message": f"invalid JSON: {type(exc).__name__}: {exc}",
+                    },
                 }
             )
             continue
@@ -1371,7 +1492,23 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                 )
             if method == "initialize":
                 asked = params.get("protocolVersion")
-                protocol = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
+                agreed = asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0]
+                if protocol is not None and agreed != protocol:
+                    # A session is initialised once. A second handshake used to be
+                    # accepted and to replace the version - 2025-06-18 then 2024-11-05
+                    # downgraded the session silently, and the version decides whether
+                    # a result carries `structuredContent`, so every later result
+                    # changed shape because of a message that should have been refused.
+                    #
+                    # The same version is a retry of a message the client is not sure
+                    # arrived, and is answered.
+                    raise ProtocolError(
+                        INVALID_REQUEST,
+                        f"already initialized at protocol {protocol}; a session is "
+                        "initialized once, and this would change the shape of every "
+                        "later result",
+                    )
+                protocol = agreed
                 result: dict[str, Any] = {
                     "protocolVersion": protocol,
                     "capabilities": {"tools": {}},
@@ -1383,7 +1520,7 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                     "instructions": INSTRUCTIONS,
                 }
             elif method == "tools/list":
-                result = {"tools": TOOLS}
+                result = {"tools": _tools_for(protocol)}
             elif method == "tools/call":
                 name = params.get("name")
                 arguments = params.get("arguments") or {}

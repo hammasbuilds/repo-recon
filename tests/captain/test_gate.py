@@ -33,14 +33,29 @@ def test_a_uniform_release_has_no_riskiest_commit_worth_naming():
     scores the same. Comparing that to a fixed 45 is the mistake this module's own
     first paragraph warns about — ten one-line commits and ten 20,000-line commits
     differed only by `spread`, and the verdict followed the constant, not the risk.
+
+    This test used to assert `observed == 1.0` and `status == "pass"` - under that
+    title. It asserted that the meaningless ratio IS produced, and so it held the
+    defect in place: an independent reviewer found ten identical commits, fifty
+    identical commits and a three-commit release all reporting "X against a median of
+    X (1.0x)" under "4 of 4 checks measured something", and this is the test that said
+    they should.
+
+    A release where every commit scores the same supports no comparison, and
+    `NOT_MEASURED` is what this module calls that.
     """
     for lines, files in ((1, 1), (1000, 20)):
         history = History(
             repo="r", commits=[_plain(n, lines=lines, files=files) for n in range(10)]
         )
         check = _riskiest(history)
-        assert check.observed == 1.0, (lines, files, check.detail)
-        assert check.status == "pass", (lines, files, check.detail)
+        assert check.status == "not measured", (lines, files, check.detail)
+        assert "about the same" in check.detail, (lines, files, check.detail)
+        # The withdrawn comparison is the ratio; what is reported is the score, and the
+        # unit says which.
+        assert check.unit == "score", check
+        assert check.observed > 1.0, check
+        assert "against a median of" not in check.detail, check.detail
 
 
 def test_one_commit_that_stands_out_is_named():
