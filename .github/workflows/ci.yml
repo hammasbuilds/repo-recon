@@ -23,7 +23,11 @@ jobs:
       # ruff is pinned, not floated. `ruff format` output changes between minor
       # versions, so an unpinned install turns CI red with a formatting diff in files
       # nobody touched - which is what happened here. Same specifier as agentic-ai-llm.
-      - run: pip install pytest "ruff>=0.16,<0.17" jsonschema
+      # `tomli` only for Python 3.10, where `tomllib` is not in the standard
+      # library yet. Without it tests/test_manifest.py fails at collection on the
+      # oldest version `requires-python` promises, and every claim it makes about
+      # server.json goes unchecked there.
+      - run: pip install pytest "ruff>=0.16,<0.17" jsonschema 'tomli; python_version < "3.11"'
       # The whole tree, not `src tests`. `demo.py`, `docs/` and the workflow files
       # were outside the gate, so a formatting violation in the document that shows
       # this tool's own sample input sat in `main` through a green CI. The one block

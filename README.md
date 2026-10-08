@@ -113,7 +113,7 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-52 modules, 625 symbols, 13,284 lines
+52 modules, 625 symbols, 13,291 lines
 call graph: 1026 of 1095 in-scope calls bound to a definition here (93.7%)
   the same number over EVERY call site, builtins included: 28.9% - which measures nothing
 core modules by PageRank over the import graph:

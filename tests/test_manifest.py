@@ -11,7 +11,14 @@ import json
 import re
 from pathlib import Path
 
-import tomllib
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10, which `requires-python = ">=3.10"` promises
+    # `tomllib` entered the standard library in 3.11. This module imported it
+    # unconditionally, so on 3.10 the whole file failed at COLLECTION - pytest reported
+    # one error and ran nothing, and every claim this file makes about `server.json`
+    # went unchecked on the oldest version the package says it supports.
+    import tomli as tomllib
 
 from reporecon import __version__
 from reporecon.mcp_server import ROOT_ENV, TOOLS
