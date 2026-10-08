@@ -113,7 +113,7 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-52 modules, 625 symbols, 13,273 lines
+52 modules, 625 symbols, 13,284 lines
 call graph: 1026 of 1095 in-scope calls bound to a definition here (93.7%)
   the same number over EVERY call site, builtins included: 28.9% - which measures nothing
 core modules by PageRank over the import graph:
@@ -146,7 +146,7 @@ review_diff - only what survived a disproof attempt
 ---------------------------------------------------
 2 proposed, 2 confirmed, 0 retracted
   line 966: assert-in-source - assert is removed under `python -O`, so this check may not run
-  line 1059: swallowed-exception - `except NotAGitRepository: return` discards the error and continues
+  line 1057: swallowed-exception - `except NotAGitRepository: return` discards the error and continues
 
 the same checks over four functions written to exercise them:
   5 proposed: 2 confirmed, 2 disproved, 1 acknowledged

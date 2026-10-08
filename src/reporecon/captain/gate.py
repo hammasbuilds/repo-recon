@@ -118,7 +118,8 @@ _STANDOUT_MINIMUM = RELATIVE_MINIMUM
 #: 0.00. Those figures were taken with the spread measured from the MINIMUM; it is
 #: measured from the median now, which is a smaller number for the same release, and the
 #: threshold is unchanged because what it has to separate is unchanged - a release where
-#: the top commit is the median from one where it is not. That is evidence the threshold is not arbitrary and it is NOT a measurement
+#: the top commit is the median from one where it is not. That is evidence the threshold
+#: is not arbitrary, and it is NOT a measurement
 #: anyone can reproduce - those are live checkouts that have moved since, and the
 #: sentence names no revision because there was no single revision to name. What can be
 #: checked is in `tests/captain/test_standout_is_measurable.py`: uniform releases are

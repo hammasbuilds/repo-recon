@@ -20,7 +20,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install pytest ruff jsonschema
+      # ruff is pinned, not floated. `ruff format` output changes between minor
+      # versions, so an unpinned install turns CI red with a formatting diff in files
+      # nobody touched - which is what happened here. Same specifier as agentic-ai-llm.
+      - run: pip install pytest "ruff>=0.16,<0.17" jsonschema
       # The whole tree, not `src tests`. `demo.py`, `docs/` and the workflow files
       # were outside the gate, so a formatting violation in the document that shows
       # this tool's own sample input sat in `main` through a green CI. The one block

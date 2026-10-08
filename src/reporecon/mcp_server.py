@@ -883,8 +883,8 @@ OUTPUT_NOTES: dict[str, dict[str, str]] = {
         "files_scanned": (
             "Python files FOUND under the path. Not the denominator: a file that "
             "cannot be read, is over the size limit, or does not parse is counted "
-            "here and read by nothing. This said \"Python files read. The "
-            "denominator for the two counts below\", and four files of garbage "
+            'here and read by nothing. This said "Python files read. The '
+            'denominator for the two counts below", and four files of garbage '
             "reported 0 mechanical and 0 behavioural over 4 scanned."
         ),
         "files_read": (
@@ -1043,9 +1043,7 @@ def _confined_repository(root: Path) -> None:
         try:
             text = marker.read_text(encoding="utf-8", errors="replace").strip()
         except OSError as exc:
-            raise ToolError(
-                f"{marker} cannot be read, so it cannot be checked: {exc}"
-            ) from None
+            raise ToolError(f"{marker} cannot be read, so it cannot be checked: {exc}") from None
         if text.startswith("gitdir:"):
             named = Path(text.split(":", 1)[1].strip()).expanduser()
             named = (root / named).resolve() if not named.is_absolute() else named.resolve()
@@ -1893,7 +1891,6 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
         replies = [reply for reply in (answer(item) for item in messages) if reply is not None]
         # All notifications: the spec says return nothing at all.
         return replies or None
-
 
     for raw, truncated in _bounded_lines(stdin):
         line = raw.decode("utf-8", errors="replace").strip()

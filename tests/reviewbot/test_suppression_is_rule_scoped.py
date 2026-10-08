@@ -128,9 +128,7 @@ def test_an_acknowledgement_is_reported_as_one_and_not_as_a_disproof(
     assert row["line"] == 1, row
 
 
-def test_a_defeater_retraction_is_reported_as_a_disproof(
-    server: ReconServer, tmp_path: Path
-):
+def test_a_defeater_retraction_is_reported_as_a_disproof(server: ReconServer, tmp_path: Path):
     """The other kind, which is the one the project is built to measure: a mutable
     default the function never mutates is not a bug, and nothing is marked."""
     path = tmp_path / "m.py"
@@ -152,9 +150,7 @@ def test_every_rule_has_a_code_map_entry():
     linter printed and nothing happens."""
     from reporecon.reviewbot.verify import _DEFEATERS, _DIRECTIVE_CODES
 
-    assert set(_DIRECTIVE_CODES) == set(_DEFEATERS), (
-        sorted(set(_DEFEATERS) ^ set(_DIRECTIVE_CODES))
-    )
+    assert set(_DIRECTIVE_CODES) == set(_DEFEATERS), sorted(set(_DEFEATERS) ^ set(_DIRECTIVE_CODES))
     for rule, codes in _DIRECTIVE_CODES.items():
         assert codes, rule
         for code in codes:

@@ -36,6 +36,7 @@ _SEP = "\x00"
 #: plain text in argv and a NUL in the output.
 _SEP_FORMAT = "%x00"
 
+
 class UnreadableHistory(ValueError):
     """`git log` produced output this parser cannot vouch for.
 

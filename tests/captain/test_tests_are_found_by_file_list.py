@@ -33,9 +33,7 @@ from reporecon.captain.history import read_history, tracked_test_files
 
 
 def _git(repo: Path, *args: str) -> str:
-    done = sp.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
-    )
+    done = sp.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True)
     return done.stdout
 
 
@@ -66,7 +64,9 @@ def repo(tmp_path: Path) -> Path:
     sp.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
     (root / "tests").mkdir()
     (root / "src").mkdir()
-    (root / "tests" / "test_core.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    (root / "tests" / "test_core.py").write_text(
+        "def test_x():\n    assert True\n", encoding="utf-8"
+    )
     (root / "src" / "core.py").write_text("def f():\n    return 1\n", encoding="utf-8")
     _commit(root, "the tests, written once")
     for n in range(4):
@@ -139,9 +139,7 @@ def test_the_count_comes_from_the_file_list_and_not_from_the_commits(repo: Path)
     file is not testing what it says it is.
     """
     history = read_history(repo, 3)
-    touched_in_window = any(
-        change.is_test for commit in history.commits for change in commit.files
-    )
+    touched_in_window = any(change.is_test for commit in history.commits for change in commit.files)
     assert not touched_in_window, "the window touched a test file; the fixture moved"
     assert history.test_files_tracked == 1, history.test_files_tracked
 

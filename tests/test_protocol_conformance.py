@@ -76,7 +76,7 @@ BATCH = [
 def test_the_versions_that_take_a_batch_are_the_ones_that_define_it():
     """A fact about the spec, pinned so the table cannot drift from the versions
     advertised: batching was removed in 2025-06-18."""
-    assert BATCH_VERSIONS <= set(PROTOCOL_VERSIONS), sorted(BATCH_VERSIONS)
+    assert set(PROTOCOL_VERSIONS) >= BATCH_VERSIONS, sorted(BATCH_VERSIONS)
     assert "2025-06-18" not in BATCH_VERSIONS
     assert "2025-03-26" in BATCH_VERSIONS
     assert "2024-11-05" in BATCH_VERSIONS
@@ -146,7 +146,9 @@ def test_a_batch_and_a_line_go_through_the_same_handler():
     """Or the batch path is a second implementation of the protocol, which is how two
     paths come to disagree. The same request, both ways, same result."""
     one = _run([_init("2024-11-05"), _ping(5), _ping()])
-    many = _run([_init("2024-11-05"), _encode([{"jsonrpc": "2.0", "id": 5, "method": "ping"}]), _ping()])
+    many = _run(
+        [_init("2024-11-05"), _encode([{"jsonrpc": "2.0", "id": 5, "method": "ping"}]), _ping()]
+    )
     assert one[1] == many[1][0], (one[1], many[1])
 
 
@@ -199,7 +201,9 @@ def test_the_line_after_an_over_long_one_is_a_line_and_not_its_tail():
 
 
 @pytest.mark.parametrize(
-    "request_id", [{"a": 1}, [1, 2], 1.5, True, False], ids=["object", "array", "float", "true", "false"]
+    "request_id",
+    [{"a": 1}, [1, 2], 1.5, True, False],
+    ids=["object", "array", "float", "true", "false"],
 )
 def test_an_id_that_is_not_a_string_or_an_integer_is_refused(request_id):
     replies = _run(
@@ -249,8 +253,6 @@ def test_a_null_id_keeps_its_own_message():
 
 def test_a_notification_is_still_not_answered():
     """No `id` at all, which is different from a null one."""
-    replies = _run(
-        [_init("2025-06-18"), _encode({"jsonrpc": "2.0", "method": "ping"}), _ping()]
-    )
+    replies = _run([_init("2025-06-18"), _encode({"jsonrpc": "2.0", "method": "ping"}), _ping()])
     assert len(replies) == 2, replies
     assert _alive(replies)

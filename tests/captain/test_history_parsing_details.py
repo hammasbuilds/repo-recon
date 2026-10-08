@@ -74,9 +74,7 @@ def test_a_renamed_python_file_still_counts_as_a_source_change():
         author="t",
         when=dt.datetime(2026, 1, 1),
         subject="move the package",
-        files=[
-            FileChange(path=_renamed_to("src/{oldpkg => newpkg}/m.py"), added=3, deleted=1)
-        ],
+        files=[FileChange(path=_renamed_to("src/{oldpkg => newpkg}/m.py"), added=3, deleted=1)],
     )
     assert commit.touches_source, commit.files
     assert commit.areas == {"src"}, commit.areas
@@ -86,7 +84,7 @@ def test_a_renamed_python_file_still_counts_as_a_source_change():
 
 QUOTED = {
     r'"src/caf\303\251.py"': "src/café.py",
-    r'"src/{a => caf\303\251}/d.py"': 'src/{a => café}/d.py',
+    r'"src/{a => caf\303\251}/d.py"': "src/{a => café}/d.py",
     # Already plain: unchanged, quotes and all absent.
     "src/plain.py": "src/plain.py",
     # An escaped quote inside the name.
@@ -143,9 +141,20 @@ def test_an_unreadable_record_raises_the_named_type(tmp_path, monkeypatch):
     (root / "m.py").write_text("x = 1\n", encoding="utf-8")
     sp.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
     sp.run(
-        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t",
-         "commit", "-qm", "first"],
-        check=True, capture_output=True,
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-qm",
+            "first",
+        ],
+        check=True,
+        capture_output=True,
     )
 
     real = module._git
@@ -159,9 +168,7 @@ def test_an_unreadable_record_raises_the_named_type(tmp_path, monkeypatch):
             # which is how the first version of this test came back DID NOT RAISE.
             return (
                 module._SEP
-                + module._SEP.join(
-                    ["not-a-sha", "t", "2026-01-01T00:00:00+00:00", "subject"]
-                )
+                + module._SEP.join(["not-a-sha", "t", "2026-01-01T00:00:00+00:00", "subject"])
                 + chr(10)
             )
         return real(repo, *args, **kwargs)
@@ -188,7 +195,8 @@ def test_a_sha256_repository_reads_like_any_other(tmp_path):
     root = tmp_path / "sha256"
     made = sp.run(
         ["git", "init", "-q", "--object-format=sha256", str(root)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if made.returncode != 0:
         pytest.skip(f"this git cannot make a sha256 repository: {made.stderr.strip()[:80]}")
@@ -197,9 +205,20 @@ def test_a_sha256_repository_reads_like_any_other(tmp_path):
         (root / name).write_text(body, encoding="utf-8")
         sp.run(["git", "-C", str(root), "add", name], check=True, capture_output=True)
         sp.run(
-            ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t",
-             "commit", "-qm", f"add {name}"],
-            check=True, capture_output=True,
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                f"add {name}",
+            ],
+            check=True,
+            capture_output=True,
         )
 
     head = sp.run(

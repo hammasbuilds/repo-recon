@@ -76,6 +76,7 @@ def test_all_six_tools_are_reported_the_same_way(graph):
         f"by name, so this says the resolver stopped seeing that: {sorted(listed)}"
     )
 
+
 def test_a_call_from_a_test_does_not_count_as_a_caller(tmp_path: Path):
     """Driven on a repository built here, because the behaviour is the rule and the
     repository above is one instance of it."""

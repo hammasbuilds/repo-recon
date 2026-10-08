@@ -12,9 +12,8 @@ most false positives are false because of something the diff did not show.
 
 from __future__ import annotations
 
-import re
-
 import ast
+import re
 from dataclasses import dataclass
 
 from .checks import Proposal
@@ -134,10 +133,7 @@ def _acknowledged(context: FileContext, proposal: Proposal) -> str | None:
             codes = set(_CODE.findall(comment.split(directive, 1)[1]))
             if not codes:
                 # A bare directive silences everything, which is what it means.
-                return (
-                    f"the author marked it: a bare '{directive}' {where} line "
-                    f"{proposal.line}"
-                )
+                return f"the author marked it: a bare '{directive}' {where} line {proposal.line}"
             mine = _DIRECTIVE_CODES.get(proposal.rule, frozenset())
             shared = sorted(codes & mine)
             if shared:

@@ -931,9 +931,9 @@ def test_a_git_directory_symlink_outside_the_root_is_refused(tmp_path: Path, mon
         with pytest.raises(ToolError) as caught:
             getattr(server, tool)({"path": str(confined), "last": 5})
         assert "outside" in str(caught.value), (tool, str(caught.value))
-        assert str(outside / ".git") in str(caught.value).replace("/", "\\") or str(
-            outside
-        ) in str(caught.value), (tool, str(caught.value))
+        assert str(outside / ".git") in str(caught.value).replace("/", "\\") or str(outside) in str(
+            caught.value
+        ), (tool, str(caught.value))
 
 
 def test_a_gitfile_pointing_outside_the_root_is_refused(tmp_path: Path, monkeypatch):
