@@ -681,9 +681,26 @@ def test_a_link_inside_the_root_does_not_reach_outside_it(
     # `ls` had nothing to explain the difference. Reported in its own field rather than
     # as a module with an error attached: a file the confinement refused is not a
     # module of this repository, and listing it as one is the leak with a label on it.
+    # Whether the walk ever MEETS that file depends on what the platform calls a link.
+    # `rglob` does not recurse into a POSIX symlink - it never has - but it does traverse
+    # a Windows junction, which Python does not classify as a symlink at all. So the
+    # refusal is observable on Windows and there is nothing to refuse on Linux, where the
+    # walk simply stops at the link.
+    #
+    # The property that matters is asserted above, on both: the file outside the root is
+    # not in the map and was not scanned. This last part is about the map SAYING what it
+    # excluded, which it can only say about a path it actually reached. Asserted either
+    # way rather than skipped, so neither platform is left unchecked.
     refused = mapped["refused_paths"]
-    assert refused, mapped
-    assert any("private" in path for path in refused), refused
+    reached = any(path.name == "private.py" for path in confined.rglob("*.py"))
+    if reached:
+        assert refused, mapped
+        assert any("private" in path for path in refused), refused
+    else:
+        assert refused == [], (
+            "the walk did not follow the link, so there was nothing to refuse - "
+            f"but something was reported: {refused}"
+        )
     assert not any("private" in card["module"] for card in mapped["core_modules"])
 
 

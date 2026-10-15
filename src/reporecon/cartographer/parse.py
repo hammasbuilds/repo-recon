@@ -203,11 +203,19 @@ def iter_python_files(
             continue
         if any(p.is_relative_to(d) for d in nested):
             continue
-        # `rglob` follows directory symlinks and Windows junctions, so a link inside
-        # the tree pulls files from outside it into the map - which, behind the MCP
-        # server's REPO_RECON_ROOT confinement, read a file the root was meant to
-        # exclude and reported it as a module of this repository. A file is part of
-        # this repo only if it is still under the root once resolved.
+        # `rglob` traverses a Windows JUNCTION - which Python does not classify as a
+        # symlink - so a link inside the tree pulls files from outside it into the map.
+        # Behind the MCP server's REPO_RECON_ROOT confinement that read a file the root
+        # was meant to exclude and reported it as a module of this repository.
+        #
+        # Not "follows directory symlinks": it does not, on any version, and saying so
+        # overstates what this guard is catching. A POSIX symlink is already not
+        # recursed into by the walk, so on Linux there is nothing here to refuse. The
+        # check is still required - the junction case is real, and a path named directly
+        # arrives here too - but it is required for a narrower reason than the comment
+        # claimed, and the test for it had to be told the difference.
+        #
+        # A file is part of this repo only if it is still under the root once resolved.
         try:
             if not p.resolve().is_relative_to(root):
                 # Excluded, and SAID so. This was a bare `continue`, so a file reached

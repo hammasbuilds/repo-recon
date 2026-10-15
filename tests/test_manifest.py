@@ -21,6 +21,7 @@ except ModuleNotFoundError:  # Python 3.10, which `requires-python = ">=3.10"` p
     import tomli as tomllib
 
 from reporecon import __version__
+from reporecon import telemetry
 from reporecon.mcp_server import ROOT_ENV, TOOLS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,16 +39,22 @@ def test_the_manifest_describes_this_package():
 
 
 def test_the_manifest_declares_the_one_setting_that_matters():
-    """The confinement root is the only environment variable this server reads, and it
-    is the one a reader needs to know exists before pointing it at anything."""
+    """Both environment variables this server reads are declared, and they are the two a
+    reader needs to know exist: one bounds what can be read, the other is the only thing
+    that makes this server write a file.
+
+    This said "the confinement root is the only environment variable this server reads"
+    and asserted a one-element list. Adding the call log made that false, and the
+    assertion is what caught it.
+    """
     package = MANIFEST["packages"][0]
     declared = [v["name"] for v in package["environmentVariables"]]
-    assert declared == [ROOT_ENV]
+    assert declared == [ROOT_ENV, telemetry.ENV]
 
     # Every environment variable the source reads, whether written as a literal or
     # through a constant. A constant resolved to its value, so the test is about the
     # variable and not about how the code spells it.
-    constants = {"ROOT_ENV": ROOT_ENV}
+    constants = {"ROOT_ENV": ROOT_ENV, "ENV": telemetry.ENV}
     read: set[str] = set()
     for path in (ROOT / "src" / "reporecon").rglob("*.py"):
         for match in re.finditer(

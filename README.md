@@ -1,5 +1,5 @@
 <h1 align="center">repo-recon (Python · AST · MCP server · zero dependencies)</h1>
-<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server that writes nothing and whose only subprocesses are `git log`, `git rev-parse` and `git ls-files`</i></p>
+<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server whose tools write nothing and whose only subprocesses are `git log`, `git rev-parse` and `git ls-files` — the one thing that writes is the call log, off unless `REPO_RECON_TELEMETRY` names a file</i></p>
 
 <!-- mcp-name: io.github.hammasbuilds/repo-recon -->
 
@@ -94,9 +94,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **28.9%** bind to a
+number means anything. Of the call sites in this repository, **27.5%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **93.7%** do.
+method on a third-party object — **92.9%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -113,9 +113,9 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-52 modules, 625 symbols, 13,291 lines
-call graph: 1026 of 1095 in-scope calls bound to a definition here (93.7%)
-  the same number over EVERY call site, builtins included: 28.9% - which measures nothing
+56 modules, 655 symbols, 14,036 lines
+call graph: 1053 of 1133 in-scope calls bound to a definition here (92.9%)
+  the same number over EVERY call site, builtins included: 27.5% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.cartographer.parse
@@ -123,11 +123,11 @@ core modules by PageRank over the import graph:
   reporecon.reviewbot.checks
   reporecon.captain.risk
 entry points - called by nothing in this repository:
+  observability.collect.summarise
+  reporecon.mcp_server.ReconServer.call
+  observability.collect.read
+  observability.serve.Console.do_GET
   reporecon.reviewbot.verify.FileContext.build
-  reporecon.captain.risk.RiskFactors.explain
-  reporecon.captain.risk.RiskFactors.score
-  reporecon.cartographer.graph.RepoGraph.fan_in
-  reporecon.cartographer.report.RepoReport.to_json
 
 trace_impact - what breaks if this changes
 ------------------------------------------
@@ -138,15 +138,15 @@ reporecon.cartographer.parse.parse_repo is reached by 46 definition(s):
 
 check_modernisation - and what it would change
 ----------------------------------------------
-21 of 21 files read: 0 mechanical, 0 behavioural
+22 of 22 files read: 0 mechanical, 0 behavioural
   rules available: naive-now, pep585-generics, pep604-optional, pep604-union, utcfromtimestamp-deprecated, utcnow-deprecated
   nothing to modernise - this package is already written for 3.10+
 
 review_diff - only what survived a disproof attempt
 ---------------------------------------------------
 2 proposed, 2 confirmed, 0 retracted
-  line 966: assert-in-source - assert is removed under `python -O`, so this check may not run
-  line 1057: swallowed-exception - `except NotAGitRepository: return` discards the error and continues
+  line 967: assert-in-source - assert is removed under `python -O`, so this check may not run
+  line 1058: swallowed-exception - `except NotAGitRepository: return` discards the error and continues
 
 the same checks over four functions written to exercise them:
   5 proposed: 2 confirmed, 2 disproved, 1 acknowledged

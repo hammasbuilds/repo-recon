@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en" data-brand="reporecon">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo Recon · read console</title>
+<meta name="description" content="What the repo-recon MCP server read, how much of the call graph resolved, and how many findings it retracted.">
+<meta name="theme-color" content="#f4f7fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1017" media="(prefers-color-scheme: dark)">
+<style>
+  /* ---- navy on cool blue-grey: this project's own palette, so the console and the
+     demo page read as one piece of work. Elevation rather than rules, 14px corners -
+     an instrument panel, where the sibling project is a document. ---- */
+  :root {
+    --bg: #f4f7fb; --panel: #ffffff; --ink: #121a26; --muted: #5b6878;
+    --line: #bfcce1; --accent: #15508f; --good: #157f3b; --bad: #b3261e;
+    --warn: #8a5a00; --code-bg: #eaf0f8; --on-accent: #ffffff;
+    --radius: 14px;
+    --lift: 0 1px 2px rgba(16,32,56,.06), 0 6px 18px -8px rgba(16,32,56,.16);
+    --lift-hi: 0 2px 4px rgba(16,32,56,.08), 0 14px 30px -10px rgba(21,80,143,.3);
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Inter, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1017; --panel: #121a24; --ink: #e4ebf4; --muted: #8e9cb0;
+      --line: #1f2a38; --accent: #5aa6e8; --good: #4ade80; --bad: #f58a80;
+      --warn: #e0b458; --code-bg: #0e1620; --on-accent: #061320;
+      --lift: 0 1px 2px rgba(0,0,0,.5), 0 8px 20px -10px rgba(0,0,0,.6);
+      --lift-hi: 0 2px 6px rgba(0,0,0,.55), 0 16px 34px -12px rgba(90,166,232,.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1017; --panel: #121a24; --ink: #e4ebf4; --muted: #8e9cb0;
+    --line: #1f2a38; --accent: #5aa6e8; --good: #4ade80; --bad: #f58a80;
+    --warn: #e0b458; --code-bg: #0e1620; --on-accent: #061320;
+    --lift: 0 1px 2px rgba(0,0,0,.5), 0 8px 20px -10px rgba(0,0,0,.6);
+    --lift-hi: 0 2px 6px rgba(0,0,0,.55), 0 16px 34px -12px rgba(90,166,232,.28);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 44px 44px, 44px 44px;
+    background-position: -1px -1px, -1px -1px;
+    background-attachment: fixed;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 64px; }
+
+  header { position: sticky; top: 0; z-index: 20; margin-bottom: 24px;
+           background: color-mix(in srgb, var(--bg) 86%, transparent);
+           backdrop-filter: blur(10px) saturate(1.2); border-bottom: 1px solid var(--line); }
+  @supports not (backdrop-filter: blur(2px)) { header { background: var(--bg); } }
+  .bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 22px 0 8px; }
+  h1 { font-size: 23px; font-weight: 650; margin: 0; letter-spacing: -0.015em; }
+  h1 .dim { color: var(--muted); font-weight: 400; }
+  .sub { color: var(--muted); max-width: 72ch; margin: 0 0 14px; }
+  .meta { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 16px; }
+  .chip { font: 11px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+          border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px;
+          color: var(--muted); background: var(--panel); white-space: nowrap; box-shadow: var(--lift); }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.live { border-color: var(--good); color: var(--good); }
+  .chip.bad { border-color: var(--bad); color: var(--bad); }
+  #theme { margin-left: auto; background: var(--accent); color: var(--on-accent);
+           border: 1px solid transparent; border-radius: 999px; padding: 6px 12px; cursor: pointer;
+           font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .04em;
+           box-shadow: var(--lift); transition: filter .15s, box-shadow .15s; }
+  #theme:hover { filter: brightness(1.12); box-shadow: var(--lift-hi); }
+
+  h2 { font-size: 13px; letter-spacing: .07em; text-transform: uppercase;
+       color: var(--muted); margin: 32px 0 12px; font-weight: 600; }
+  h2:first-of-type { margin-top: 0; }
+
+  .panel { background: var(--panel); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+           border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--lift); }
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .tile { background: var(--panel); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+          border-radius: var(--radius); padding: 15px 17px; box-shadow: var(--lift); }
+  .tile .k { font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .tile .v { font-family: var(--mono); font-size: 26px; font-weight: 700; margin-top: 6px; line-height: 1.1; }
+  .tile .n { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .tile .v.accent { color: var(--accent); }
+  .tile .v.good { color: var(--good); }
+  .tile .v.bad { color: var(--bad); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em;
+       color: var(--muted); padding: 0 10px 8px; border-bottom: 1px solid var(--line); }
+  th.num, td.num { text-align: right; font-family: var(--mono); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  tbody tr:last-child td { border-bottom: 0; }
+  .scroll-x { overflow-x: auto; }
+  .scroll-x table { min-width: 34rem; }
+
+  .meter { height: 9px; background: var(--code-bg); border-radius: 999px; overflow: hidden; min-width: 110px; }
+  .meter > i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .meter > i.good { background: var(--good); }
+  .meter > i.bad { background: var(--bad); }
+
+  /* The retraction bar: one strip, confirmed against retracted, so the ratio is the
+     shape rather than two numbers to divide in your head. */
+  .split-bar { display: flex; height: 26px; border-radius: 999px; overflow: hidden;
+               background: var(--code-bg); font: 11px/26px var(--mono); color: var(--on-accent); }
+  .split-bar .confirmed { background: var(--good); text-align: center; }
+  .split-bar .retracted { background: var(--bad); text-align: center; }
+
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .muted { color: var(--muted); }
+  .note { border-left: 3px solid var(--warn); background: var(--code-bg);
+          padding: 10px 14px; margin: 14px 0 0; font-size: 13.5px; border-radius: 0 10px 10px 0; }
+  .empty { color: var(--muted); font-size: 13.5px; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 44px;
+           border-top: 1px solid var(--line); padding-top: 16px; }
+
+  :where(a, button, [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="bar">
+    <h1>Repo Recon <span class="dim">/ read console</span></h1>
+    <button id="theme" type="button">theme</button>
+  </div>
+  <p class="sub">What the server read, <strong>how much of the call graph actually
+  resolved</strong>, and <strong>how many findings it retracted</strong> — the two numbers
+  this package tells you to read before trusting the rest. From the JSON Lines file the
+  server appends to when <code>REPO_RECON_TELEMETRY</code> names one.</p>
+  <div class="meta" id="meta"><span class="chip">reading…</span></div>
+</header>
+
+<div id="body"><p class="empty">Loading…</p></div>
+
+<footer>
+  Console: Python <code>http.server</code> + one HTML file, no dependencies and no build
+  step. The server still writes nothing unless <code>REPO_RECON_TELEMETRY</code> is set,
+  and then one file: counts and rates, never a path, a symbol or a commit message.
+</footer>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const themeBtn = $("#theme");
+const saved = (() => { try { return localStorage.getItem("recon-console-theme"); } catch { return null; } })();
+if (saved) document.documentElement.dataset.theme = saved;
+themeBtn.onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const now = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const next = now === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("recon-console-theme", next); } catch {}
+};
+
+const el = (tag, props = {}, kids = []) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const kid of kids) node.append(kid);
+  return node;
+};
+const tile = (k, v, note, cls) => el("div", { className: "tile" }, [
+  el("div", { className: "k", textContent: k }),
+  el("div", { className: "v" + (cls ? " " + cls : ""), textContent: v }),
+  ...(note ? [el("div", { className: "n", textContent: note })] : []),
+]);
+const pct = (x) => (x === null || x === undefined) ? "—" : (x * 100).toFixed(1) + "%";
+function when(seconds) {
+  if (!seconds) return "—";
+  return new Date(seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function render(d) {
+  $("#meta").replaceChildren(
+    el("span", { className: "chip", innerHTML: `calls <b>${d.calls.toLocaleString()}</b>` }),
+    el("span", { className: "chip", innerHTML: `tools <b>${d.tools.length}</b>` }),
+    el("span", { className: "chip live", innerHTML: `writes <b>none</b>` }),
+    ...(d.refused_paths ? [el("span", { className: "chip bad",
+        innerHTML: `confinement refused <b>${d.refused_paths}</b>` })] : []),
+    el("span", { className: "chip", innerHTML: `window <b>${when(d.first)} → ${when(d.last)}</b>` }),
+    el("span", { className: d.log_exists ? "chip live" : "chip bad",
+                 innerHTML: `log <b>${esc(d.log.split(/[\\/]/).pop())}</b>` }),
+  );
+
+  const out = $("#body");
+  out.replaceChildren();
+
+  if (!d.log_exists) {
+    out.append(el("div", { className: "panel" }, [
+      el("p", { innerHTML: `No log at <code>${esc(d.log)}</code>.` }),
+      el("p", { className: "muted", innerHTML:
+        `This server writes nothing unless asked. Start it with ` +
+        `<code>REPO_RECON_TELEMETRY=${esc(d.log)}</code> and make a call.` }),
+    ]));
+    return;
+  }
+  if (!d.calls) {
+    out.append(el("div", { className: "panel" }, [
+      el("p", { textContent: "The log exists and holds no events yet." }),
+      el("p", { className: "muted", textContent:
+        "The file is created on the first recorded call, so this is the ordinary state between starting the server and using it." }),
+    ]));
+    return;
+  }
+
+  out.append(el("h2", { textContent: "At a glance" }));
+  out.append(el("div", { className: "tiles" }, [
+    tile("calls", d.calls.toLocaleString()),
+    tile("p50", d.p50 + " ms"),
+    tile("p95", d.p95 + " ms", d.thin ? `only ${d.calls} calls` : null),
+    tile("slowest", d.max + " ms"),
+    tile("paths refused", String(d.refused_paths),
+         d.refused_paths ? "confinement, working" : "none outside the root", d.refused_paths ? "bad" : null),
+  ]));
+  if (d.thin) {
+    out.append(el("div", { className: "note", innerHTML:
+      `<strong>Read the percentiles as the sample they are.</strong> p95 over ${d.calls} ` +
+      `call${d.calls === 1 ? "" : "s"} is close to the slowest one; it becomes a percentile past ${d.thin_at}.` }));
+  }
+
+  // ---- signature panel 1 --------------------------------------------------------------
+  out.append(el("h2", { textContent: "How much of the call graph resolved" }));
+  const r = d.resolution;
+  if (!r.reads) {
+    out.append(el("div", { className: "panel" }, [
+      el("p", { className: "empty", innerHTML: "No <code>map_repo</code> call recorded yet." })]));
+  } else {
+    out.append(el("div", { className: "panel" }, [
+      el("p", { className: "muted", style: "margin-top:0", innerHTML:
+        "<code>map_repo</code>'s own description says to read this first: the share of " +
+        "<em>in-scope</em> calls that bound to a definition in the repository. A low one " +
+        "means the map is partial, and the rest of the panel should be read that way." }),
+      el("div", { className: "tiles" }, [
+        tile("mean", pct(r.mean), `${r.reads} read${r.reads === 1 ? "" : "s"}`, "accent"),
+        tile("worst", pct(r.worst)),
+        tile("best", pct(r.best)),
+        tile("over every call site", pct(r.all_call_sites_mean),
+             "includes len() and print() — not the repo's figure", "muted"),
+      ]),
+      el("p", { className: "muted", style: "font-size:12.5px; margin-bottom:0", innerHTML:
+        "The last tile counts <em>every</em> call site, builtins included, so it is mostly " +
+        "a statement about the standard library. It is here so nobody quotes it as the " +
+        "repository's resolution rate." }),
+    ]));
+  }
+
+  // ---- signature panel 2 --------------------------------------------------------------
+  out.append(el("h2", { textContent: "What review_diff retracted" }));
+  const v = d.review;
+  if (!v.reviews) {
+    out.append(el("div", { className: "panel" }, [
+      el("p", { className: "empty", innerHTML: "No <code>review_diff</code> call recorded yet." })]));
+  } else {
+    const total = v.proposed || 1;
+    const confirmedPct = (v.confirmed / total) * 100;
+    const retractedPct = (v.retracted / total) * 100;
+    out.append(el("div", { className: "panel" }, [
+      el("p", { className: "muted", style: "margin-top:0", innerHTML:
+        "Findings are proposed, then tested against the file's full context, and the ones " +
+        "that do not hold are retracted. <strong>A retracted finding is not a finding</strong> " +
+        "— reporting the proposed count would be reporting the number the tool spent its " +
+        "effort disagreeing with." }),
+      el("div", { className: "tiles" }, [
+        tile("reviews", String(v.reviews)),
+        tile("proposed", v.proposed.toLocaleString()),
+        tile("confirmed", v.confirmed.toLocaleString(), null, "good"),
+        tile("retracted", v.retracted.toLocaleString(), pct(v.retraction_rate) + " of proposals", "bad"),
+      ]),
+      el("div", { className: "split-bar", style: "margin-top:14px" }, [
+        el("div", { className: "confirmed", style: `width:${confirmedPct.toFixed(1)}%`,
+                    textContent: v.confirmed ? `confirmed ${v.confirmed}` : "" }),
+        el("div", { className: "retracted", style: `width:${retractedPct.toFixed(1)}%`,
+                    textContent: v.retracted ? `retracted ${v.retracted}` : "" }),
+      ]),
+    ]));
+  }
+
+  // ---- modernisation -------------------------------------------------------------------
+  const m = d.modernisation;
+  if (m.files_scanned) {
+    out.append(el("h2", { textContent: "Modernisation, in two classes" }));
+    out.append(el("div", { className: "panel" }, [
+      el("p", { className: "muted", style: "margin-top:0", innerHTML:
+        "Never merged into one number. A <strong>mechanical</strong> edit cannot change " +
+        "behaviour; a <strong>behavioural</strong> one can, and carries a note saying what " +
+        "it would change." }),
+      el("div", { className: "tiles" }, [
+        tile("mechanical", m.mechanical.toLocaleString(), "cannot change behaviour", "good"),
+        tile("behavioural", m.behavioural.toLocaleString(), "can change meaning", "bad"),
+        tile("files read", m.files_scanned.toLocaleString()),
+      ]),
+    ]));
+  }
+
+  // ---- verdicts -------------------------------------------------------------------------
+  const verdicts = Object.entries(d.verdicts);
+  if (verdicts.length) {
+    out.append(el("h2", { textContent: "Release verdicts" }));
+    const rows = el("div", { className: "tiles" },
+      verdicts.map(([name, n]) => tile(name, String(n), null,
+        name === "pass" ? "good" : name === "block" ? "bad" : null)));
+    out.append(rows);
+  }
+
+  // ---- per tool --------------------------------------------------------------------------
+  out.append(el("h2", { textContent: "By tool" }));
+  const table = el("table", {}, [
+    el("thead", {}, [el("tr", {}, [
+      el("th", { textContent: "tool" }),
+      el("th", { className: "num", textContent: "calls" }),
+      el("th", { className: "num", textContent: "rejected" }),
+      el("th", { className: "num", textContent: "errors" }),
+      el("th", { className: "num", textContent: "p50 ms" }),
+      el("th", { className: "num", textContent: "p95 ms" }),
+      el("th", { className: "num", textContent: "max ms" }),
+    ])]),
+  ]);
+  const tbody = el("tbody");
+  for (const row of d.tools) {
+    tbody.append(el("tr", {}, [
+      el("td", {}, [el("code", { textContent: row.tool })]),
+      el("td", { className: "num", textContent: row.calls.toLocaleString() }),
+      el("td", { className: "num", textContent: String(row.rejected) }),
+      el("td", { className: "num", textContent: String(row.errors) }),
+      el("td", { className: "num", textContent: String(row.p50) }),
+      el("td", { className: "num", textContent: row.thin ? `${row.p95} *` : String(row.p95) }),
+      el("td", { className: "num", textContent: String(row.max) }),
+    ]));
+  }
+  table.append(tbody);
+  out.append(el("div", { className: "panel scroll-x" }, [table]));
+  if (d.tools.some((r) => r.thin)) {
+    out.append(el("p", { className: "muted", style: "font-size:12.5px",
+      textContent: `* fewer than ${d.thin_at} calls, so that column is the slowest of a handful rather than a percentile.` }));
+  }
+
+  // ---- the tail ---------------------------------------------------------------------------
+  out.append(el("h2", { textContent: "Recent calls" }));
+  const recent = el("table", {}, [
+    el("thead", {}, [el("tr", {}, [
+      el("th", { textContent: "time" }),
+      el("th", { textContent: "tool" }),
+      el("th", { textContent: "outcome" }),
+      el("th", { className: "num", textContent: "ms" }),
+      el("th", { textContent: "figures" }),
+    ])]),
+  ]);
+  const rbody = el("tbody");
+  for (const row of d.recent) {
+    const bits = [];
+    if (row.repo_resolution_rate !== undefined) bits.push(`resolved ${pct(row.repo_resolution_rate)}`);
+    if (row.proposed !== undefined) bits.push(`${row.proposed} proposed → ${row.confirmed} confirmed`);
+    if (row.refused_paths) bits.push(`${row.refused_paths} refused`);
+    if (row.verdict) bits.push(row.verdict);
+    rbody.append(el("tr", {}, [
+      el("td", { className: "num muted", textContent: when(row.at) }),
+      el("td", {}, [el("code", { textContent: row.tool })]),
+      el("td", { textContent: row.outcome }),
+      el("td", { className: "num", textContent: String(row.ms) }),
+      el("td", { className: "muted", textContent: bits.join(" · ") || "—" }),
+    ]));
+  }
+  recent.append(rbody);
+  out.append(el("div", { className: "panel scroll-x" }, [recent]));
+}
+
+async function tick() {
+  try {
+    const answer = await fetch("/api/summary", { cache: "no-store" });
+    render(await answer.json());
+  } catch (err) {
+    $("#meta").replaceChildren(el("span", { className: "chip bad", textContent: "console unreachable" }));
+    $("#body").replaceChildren(el("div", { className: "panel" }, [
+      el("p", { textContent: "The console stopped answering: " + String(err.message) }),
+    ]));
+  }
+}
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

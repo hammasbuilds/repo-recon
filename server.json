@@ -25,6 +25,13 @@
           "isRequired": false,
           "isSecret": false,
           "format": "filepath"
+        },
+        {
+          "name": "REPO_RECON_TELEMETRY",
+          "description": "A file to append one JSON line to per tool call, for the console in observability/. Optional and off by default: unset, this server writes nothing at all. Set, it writes this one file - counts, rates and durations, never a path, a symbol or a commit message. Deleting the file is a complete uninstall.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "filepath"
         }
       ]
     }

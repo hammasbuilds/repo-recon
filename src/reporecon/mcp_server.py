@@ -43,11 +43,12 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import __version__
+from . import __version__, telemetry
 from .captain.gate import evaluate
 from .captain.history import (
     NotAGitRepository,
@@ -1239,6 +1240,39 @@ def _read(path: Path) -> str:
 class ReconServer:
     """Each method takes the tool's arguments and returns its structured result."""
 
+    def call(self, name: str, arguments: dict) -> dict:
+        """Run one tool by name, and record that it ran.
+
+        The protocol dispatch in `serve()` goes through here, and so does a direct
+        caller - this repository's own tests call `server.map_repo({...})`, and an
+        instrumented dispatch that only the pipe reaches would have observed none of
+        that. One place, so the console sees a call however it arrived.
+
+        Recording is off unless `REPO_RECON_TELEMETRY` names a file; see `telemetry`.
+        """
+        handler = getattr(self, name)
+        started = time.perf_counter()
+        try:
+            payload = handler(arguments)
+        except ToolError:
+            telemetry.record(
+                {
+                    "tool": name,
+                    "outcome": "tool_error",
+                    "ms": round((time.perf_counter() - started) * 1000, 2),
+                }
+            )
+            raise
+        telemetry.record(
+            {
+                "tool": name,
+                "outcome": "ok",
+                "ms": round((time.perf_counter() - started) * 1000, 2),
+                **telemetry.from_result(payload),
+            }
+        )
+        return payload
+
     def map_repo(self, arguments: dict) -> dict:
         root = _resolve(arguments.get("path"), want="dir")
         top = _int(arguments, "top", 12, 1, 100)
@@ -1814,6 +1848,7 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                     # just guessed a name and the cheapest way out of that loop is to
                     # be told what is actually here. The same reasoning as the
                     # additionalProperties message below.
+                    telemetry.record({"tool": str(name), "outcome": "unknown_tool", "ms": 0.0})
                     raise ProtocolError(
                         INVALID_PARAMS,
                         f"unknown tool: {name!r}; one of {', '.join(sorted(_BY_NAME))}",
@@ -1827,16 +1862,20 @@ def serve(stdin: BinaryIO, stdout: BinaryIO, server: ReconServer) -> None:
                 allowed = set(_BY_NAME[name]["inputSchema"].get("properties", {}))
                 unknown = sorted(set(arguments) - allowed)
                 if unknown:
+                    # Recorded too: a client sending the same wrong argument name over
+                    # and over never reaches a handler, so it would otherwise be the one
+                    # kind of traffic the console could not see.
+                    telemetry.record({"tool": name, "outcome": "rejected", "ms": 0.0})
                     raise ProtocolError(
                         INVALID_PARAMS,
                         f"{name} has no argument {unknown[0]!r}; it takes "
                         + ", ".join(sorted(allowed)),
                     )
                 try:
-                    payload = getattr(server, name)(arguments)
+                    payload = server.call(name, arguments)
                 except ToolError as exc:
                     # A correctable argument is a tool result, not a protocol error:
-                    # the model can read it and try again.
+                    # the model can read it and try again. `call` has already recorded it.
                     result = _error_result(str(exc))
                 else:
                     result = _result(payload, protocol)
