@@ -6,6 +6,10 @@ resolved**, and **how many findings it retracted**.
 Zero dependencies, like the rest of the package — `http.server`, one HTML file, a JSON
 Lines log. No Prometheus, no Grafana, no database, no build step.
 
+![The read console](console.png)
+
+*Real reads: resolution 91.7% against 24.8% over every call site, and a review that proposed 157 findings and kept 1.*
+
 ```bash
 # 1. run the server with recording on. Off unless this names a file.
 REPO_RECON_TELEMETRY=calls.jsonl repo-recon-mcp

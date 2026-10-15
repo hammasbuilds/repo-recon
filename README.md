@@ -23,6 +23,19 @@
 
 ---
 
+## Interface
+
+![The demo interface](docs/interface.png)
+
+A local front end over the server: point it at a checkout and run any of the six tools.
+Python `http.server` and one HTML file — no framework, no build step, no npm. It starts
+`python -m reporecon.mcp_server` and speaks the protocol to it, so every answer on the
+page arrived through a real `tools/call`.
+
+Kept outside the package deliberately: `repo-recon` installs with zero dependencies and no
+web surface. The read console in [`observability/`](observability) is the other page, and
+it ships here.
+
 ## Install
 
 No dependencies, so nothing to resolve:
