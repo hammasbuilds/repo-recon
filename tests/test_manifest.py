@@ -20,8 +20,7 @@ except ModuleNotFoundError:  # Python 3.10, which `requires-python = ">=3.10"` p
     # went unchecked on the oldest version the package says it supports.
     import tomli as tomllib
 
-from reporecon import __version__
-from reporecon import telemetry
+from reporecon import __version__, telemetry
 from reporecon.mcp_server import ROOT_ENV, TOOLS
 
 ROOT = Path(__file__).resolve().parents[1]
