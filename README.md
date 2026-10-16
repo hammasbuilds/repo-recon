@@ -107,9 +107,9 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.5%** bind to a
+number means anything. Of the call sites in this repository, **27.6%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **92.9%** do.
+method on a third-party object — **93.0%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
@@ -126,9 +126,9 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-56 modules, 654 symbols, 14,026 lines
-call graph: 1053 of 1133 in-scope calls bound to a definition here (92.9%)
-  the same number over EVERY call site, builtins included: 27.5% - which measures nothing
+56 modules, 659 symbols, 14,133 lines
+call graph: 1066 of 1146 in-scope calls bound to a definition here (93.0%)
+  the same number over EVERY call site, builtins included: 27.6% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.cartographer.parse
