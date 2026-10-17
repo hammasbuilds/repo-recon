@@ -1,78 +1,22 @@
-<h1 align="center">repo-recon (Python · AST · MCP server · zero dependencies)</h1>
-<p align="center"><i>Six readers for a Python codebase you did not write — structure, impact, modernisation risk, release readiness — behind one MCP server whose tools write nothing and whose only subprocesses are `git log`, `git rev-parse` and `git ls-files` — the one thing that writes is the call log, off unless `REPO_RECON_TELEMETRY` names a file</i></p>
+# repo-recon
 
 <!-- mcp-name: io.github.hammasbuilds/repo-recon -->
 
-<p align="center">
-  <a href="#install">Install</a> &middot;
-  <a href="#the-six-tools">The six tools</a> &middot;
-  <a href="#mechanical-is-not-behavioural">Mechanical is not behavioural</a> &middot;
-  <a href="#the-denominator-is-the-measurement">The denominator</a> &middot;
-  <a href="#output">Output</a> &middot;
-  <a href="#what-it-will-not-do">What it will not do</a>
-</p>
+[![ci](https://github.com/hammasbuilds/repo-recon/actions/workflows/ci.yml/badge.svg)](https://github.com/hammasbuilds/repo-recon/actions/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.10%2B-blue)
+![deps](https://img.shields.io/badge/dependencies-zero-success)
+![mcp](https://img.shields.io/badge/MCP-stdio%20server-7c3aed)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<p align="center">
-  <a href="https://github.com/hammasbuilds/repo-recon/actions/workflows/ci.yml"><img src="https://github.com/hammasbuilds/repo-recon/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python">
-  <img src="https://img.shields.io/badge/dependencies-zero-success" alt="deps">
-  <img src="https://img.shields.io/badge/MCP-stdio%20server-7c3aed" alt="mcp">
-  <img src="https://img.shields.io/badge/tools-6%20read--only-0ea5e9" alt="tools">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="license"></a>
-</p>
+We built repo-recon, an MCP server with six read-only tools for understanding a Python
+codebase you did not write: its structure, what a change would break, what modernising it
+would change, which review findings hold up, and whether its history looks safe to release.
+It is for developers and coding agents (Claude Code or any MCP client) dropped into an
+unfamiliar repository. Source is parsed with `ast` and never imported or executed; the only
+subprocesses are `git log`, `git rev-parse` and `git ls-files`, and the only thing that
+writes is an optional call log, off unless `REPO_RECON_TELEMETRY` names a file.
 
----
-
-## Interface
-
-![The demo interface](docs/interface.png)
-
-A local front end over the server: point it at a checkout and run any of the six tools.
-Python `http.server` and one HTML file — no framework, no build step, no npm. It starts
-`python -m reporecon.mcp_server` and speaks the protocol to it, so every answer on the
-page arrived through a real `tools/call`.
-
-Kept outside the package deliberately: `repo-recon` installs with zero dependencies and no
-web surface. The read console in [`observability/`](observability) is the other page, and
-it ships here.
-
-## Install
-
-No dependencies, so nothing to resolve:
-
-```bash
-pip install -e .
-repo-recon-mcp --check     # prints what it exposes and exits
-```
-
-`server.json` is the [MCP Registry](https://registry.modelcontextprotocol.io) manifest.
-It declares `registryType: "pypi"` at the package's current version, which is what the
-registry needs and is **not** a statement that the upload has happened - this package
-is not on PyPI. The order matters: submitted to the registry before the release, every
-client that installs from it fails at `uvx repo-recon`. **Upload to PyPI first, then
-submit the manifest.** `tests/test_manifest.py` keeps the declared version equal to
-`pyproject.toml`'s, so the manifest cannot drift ahead of the package it names - but
-nothing in this repository can tell you whether the upload has been done, which is why
-the order is written here.
-
-Add it to an MCP client — Claude Code, or anything that speaks the protocol:
-
-```json
-{
-  "mcpServers": {
-    "repo-recon": {
-      "command": "repo-recon-mcp",
-      "env": { "REPO_RECON_ROOT": "/path/to/your/code" }
-    }
-  }
-}
-```
-
-`REPO_RECON_ROOT` is optional and worth setting. A filesystem path is this server's
-entire input, so it is the one thing worth bounding; every path argument is resolved and
-refused if it falls outside. See [SECURITY.md](SECURITY.md).
-
-## The six tools
+## What it does
 
 | Tool | Answers | From |
 |---|---|---|
@@ -83,96 +27,74 @@ refused if it falls outside. See [SECURITY.md](SECURITY.md).
 | **`release_readiness`** | is this safe to ship | churn, spread and test-coupling against this repo's own median |
 | **`riskiest_commits`** | which commits carry the most risk, and why | the same factors, with the points each contributed |
 
-Every one is `readOnlyHint: true`, `openWorldHint: false`, and declares an
-`outputSchema` for the `structuredContent` it returns — validated against every tool on
-every path by the test suite, because a schema nobody checks is a claim rather than a
-contract.
+- Every tool is `readOnlyHint: true`, `openWorldHint: false`, and declares an `outputSchema`
+  for the `structuredContent` it returns; the test suite validates every tool's output
+  against its schema on every path.
+- `map_repo` returns two call-resolution rates. Over every call site in this repository,
+  **27.3%** bind to a definition here; over the call sites that *could* (excluding builtins
+  and methods on third-party objects), **93.7%** do. `repo_resolution_rate`, the second, is
+  the one to read.
+- `check_modernisation` reports **mechanical** edits (`List[str]` → `list[str]`, same type at
+  runtime) and **behavioural** ones separately and never adds them: `datetime.utcnow()` →
+  `datetime.now(timezone.utc)` turns a naive datetime into an aware one, and comparing it
+  with a naive one then raises `TypeError`. No tool applies an edit.
+- The four underlying tools also install as command lines: `repo-cartographer`,
+  `migration-pilot`, `release-captain` and `review-bot` (their original READMEs are in
+  [docs/](docs)).
 
-## Mechanical is not behavioural
+## Sample input / output
 
-`check_modernisation` returns two counts and never one. A **mechanical** edit cannot
-change behaviour: `List[str]` to `list[str]` is the same type at runtime. A
-**behavioural** edit can:
+A `tools/call` over stdio, as an MCP client sends it, on a seven-line file:
 
-```
-datetime.datetime.utcnow()  ->  datetime.now(timezone.utc)
-```
+```python
+import datetime
+from typing import List, Optional
 
-That is the correct modern form, and it turns a naive datetime into an aware one. Any
-caller comparing the result against another naive datetime now raises `TypeError`. Both
-edits are "modernisations"; reporting them in one pile is how a tidy-up becomes an
-outage, so every behavioural edit carries a note saying what it would change and the
-counts are never added together.
 
-## The denominator is the measurement
-
-`map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.3%** bind to a
-definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **93.7%** do.
-
-The first number measures nothing. Most calls in any codebase are to code the repository
-does not own, and counting them in the denominator makes every repository look
-unmappable. The first version of the underlying tool reported 12% and the fix was the
-denominator, not the resolver. `repo_resolution_rate` is the one to read; both are
-returned, and the tool description says which is which.
-
-### That 93.6% is this repository, which is the easy case
-
-It is one data point about one codebase, written by one person in one style with no
-metaclasses, no plugin registry and almost no dynamic dispatch. `scripts/fetch_corpus.py`
-fetches twelve real projects at pinned tags and `scripts/resolution_sweep.py` runs the
-same tool over each — chosen for the things that defeat static resolution, not for
-popularity:
-
-```
-  project        modules  symbols     lines    repo     all
-  ----------------------------------------------------------
-  attrs               51    1,558    17,569  52.9%  32.0%
-  black              261    2,305   125,828  52.8%  21.0%
-  click               47    1,277    16,373  66.4%  38.3%
-  flask               65    1,498    16,862  30.8%  16.9%
-  httpx               60    1,248    18,011  65.4%  35.8%
-  jinja               60    1,770    22,532  58.2%  34.7%
-  pydantic           292   10,216   110,092  71.2%  39.8%
-  pytest             256    6,109    92,545  61.6%  39.6%
-  requests            36      753    11,245  35.9%  19.2%
-  rich               190    2,016    38,773  78.5%  53.8%
-  sqlalchemy         687   37,006   576,683  66.3%  47.6%
-  starlette           67    1,524    17,123  54.3%  35.4%
-
-  median 59.9%, worst 30.8%, best 78.5%
+def stamp(names: List[str], prefix: Optional[str] = None) -> List[str]:
+    now = datetime.datetime.utcnow()
+    return [f"{prefix or ''}{n}@{now.isoformat()}" for n in names]
 ```
 
-**Read the median, not this repository's figure.** On someone else's code the tool binds
-about three call sites in five, and on a decorator-driven framework fewer than one in
-three. That is the number to plan against when `map_repo` tells you what calls what.
-
-Where the rest goes, grouped by the shape of the call site:
-
-```
-    64%  variable.method - the variable's type is not stated anywhere
-    22%  a bare name
-    11%  a.b.c - more than one hop
-     3%  Class.method - a class this project owns
+```json
+{"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+ "params": {"name": "check_modernisation", "arguments": {"path": "legacy"}}}
 ```
 
-The 64% is the ceiling of AST-only resolution, not a missing feature: nothing in
-`client.get(...)` says what `client` is, and the fixture that produced it carries no
-annotation either. The last 3% is the part that is a gap rather than a limit.
+`structuredContent` of the reply (real run, `rules_available` omitted):
 
-The inference that *is* there is worth stating exactly, because the reason to keep it is
-that it is correct and not that it moved a number. `app = make_app()` where
-`make_app() -> App` now resolves `app.route` to `App.route`, one hop, following the
-return annotation the repository already wrote. Over these twelve projects that took the
-median from 59.7% to 59.9% — it applies rarely, because most of their factories and
-fixtures are unannotated.
+```json
+{
+  "files_scanned": 1,
+  "files_read": 1,
+  "files_skipped": 0,
+  "mechanical": 3,
+  "behavioural": 1,
+  "by_rule": {"pep585-generics": 2, "pep604-optional": 1, "utcnow-deprecated": 1},
+  "edits": [
+    {"path": "clock.py", "line": 5, "rule": "pep585-generics", "kind": "mechanical",
+     "before": "List[str]", "replacement": "list[str]",
+     "note": "typing.List and list are the same type at runtime from 3.9"},
+    {"path": "clock.py", "line": 5, "rule": "pep604-optional", "kind": "mechanical",
+     "before": "Optional[str]", "replacement": "str | None",
+     "note": "Optional[X] and X | None are the same annotation from 3.10"},
+    {"path": "clock.py", "line": 5, "rule": "pep585-generics", "kind": "mechanical",
+     "before": "List[str]", "replacement": "list[str]",
+     "note": "typing.List and list are the same type at runtime from 3.9"},
+    {"path": "clock.py", "line": 6, "rule": "utcnow-deprecated", "kind": "behavioural",
+     "before": "datetime.datetime.utcnow()", "replacement": "datetime.now(timezone.utc)",
+     "note": "utcnow() returns a NAIVE datetime; now(timezone.utc) returns an AWARE one. Comparing the two raises TypeError, so this is a semantic change, not a rename. Requires `from datetime import timezone`."}
+  ],
+  "parse_errors": [],
+  "truncated": false
+}
+```
 
-## Output
+All six tools run on this repository by `python demo.py`, which is where every number above comes from.
+The AST half is pinned by a test; the git half names the commit it was measured at, and a
+test re-runs `release_readiness` at that commit to reproduce it. `python demo.py
+--update-readme` rewrites this block and the two rates above from one run:
 
-`python demo.py`, which is where every number above comes from. The AST half is pinned by a test, so it cannot drift from the code. The git half **names the commit it was measured at** and is re-derivable from it: four tests check that the revision is a commit here, that it is an ancestor of HEAD, that re-running `release_readiness` at it reproduces the printed verdict and count, and that it has not fallen too far behind. This paragraph used to say the git half "moves with every commit, so take it as a shape rather than as a figure to check" - which was true, and was the defect: a figure that is only true "currently" cannot be checked by anyone, including its own suite.
-
-This tool measures the repository it lives in, so every commit that adds a test moves the symbol and line counts and both resolution rates - and the test asserting the README matches the code fails on the commit that adds a test, correctly. `python demo.py --update-readme` rewrites this block and the two rates above it from one run, so the remedy is a command rather than four figures hand-edited in two places. A separate test re-runs the writer against a current README and fails if it changes anything, which is what makes "this block is that command's output" a checkable claim rather than a promise:
 
 ```
 map_repo - what is in here
@@ -240,65 +162,97 @@ a normal commit here is 131 lines across 4 files
          files 25.0, spread 20.0, volume 9.4
 ```
 
-## What it will not do
+## Results
 
-- **No network.** Nothing opens a socket.
-- **No writes through the MCP server.** Every one of the six tools opens files for
-  reading, and `tests/test_mcp_server.py` proves it rather than asserting it: it
-  fingerprints every file under a repository by size and modification time, calls all
-  six tools, and diffs. `check_modernisation` *finds* edits and no tool applies them.
+**Call resolution on other people's code.** This repository is the easy case: one author,
+one style, no metaclasses or plugin registries. `scripts/fetch_corpus.py` fetches twelve
+projects at pinned tags, chosen for what defeats static resolution, and
+`scripts/resolution_sweep.py` runs `map_repo` over each:
 
-  The command line is a different surface. `migration-pilot apply --write` rewrites the
-  files it was pointed at - that is what it is for - and it is reachable from a shell,
-  not from a client. This line used to read "No writes. Files are opened for reading",
-  which was true of the server and false of a command this package installs.
-- **Nothing of yours is executed.** Source is parsed with `ast`; the repository under
-  analysis is never imported. Every subprocess the package starts is `git`, with a fixed
-  argument list and `shell=False`. Counted by spying on `subprocess.run`, the server
-  runs **five** per history call — `rev-parse --verify`, `log`, `rev-parse
-  --absolute-git-dir`, `rev-parse --is-shallow-repository` and `ls-files -z` — and
-  **six** when `REPO_RECON_ROOT` is set, because the confinement check asks git which
-  repository it is about to read rather than parsing `.git`. None at all for `map_repo`,
-  `trace_impact`, `check_modernisation` or `review_diff`.
+```
+  project        modules  symbols     lines    repo     all
+  ----------------------------------------------------------
+  attrs               51    1,558    17,569  52.9%  32.0%
+  black              261    2,305   125,828  52.8%  21.0%
+  click               47    1,277    16,373  66.4%  38.3%
+  flask               65    1,498    16,862  30.8%  16.9%
+  httpx               60    1,248    18,011  65.4%  35.8%
+  jinja               60    1,770    22,532  58.2%  34.7%
+  pydantic           292   10,216   110,092  71.2%  39.8%
+  pytest             256    6,109    92,545  61.6%  39.6%
+  requests            36      753    11,245  35.9%  19.2%
+  rich               190    2,016    38,773  78.5%  53.8%
+  sqlalchemy         687   37,006   576,683  66.3%  47.6%
+  starlette           67    1,524    17,123  54.3%  35.4%
 
-  This line said "two `git` invocations", which is the number of call sites in the source
-  and not the number a call makes; it then said four, and `ls-files` had already made it
-  five. `tests/test_subprocess_surface.py` counts them now, so the next one to arrive
-  fails a test instead of a review.
-- **No dependencies.** Standard library only.
-- **It is not a security scanner**, and `review_diff`'s surviving findings are a filter
-  on noise rather than a guarantee of correctness.
-
-## Where it came from
-
-The four tools were four standalone packages in
-[agentic-ai-llm](https://github.com/hammasbuilds/agentic-ai-llm), each with its own
-command line and its own tests, and each is still usable that way —
-`repo-cartographer`, `migration-pilot`, `release-captain` and `review-bot` are all
-installed by this package. Their original READMEs are kept in [docs/](docs). They were
-extracted with their history rather than copied, which is why `git log` here predates
-this repository.
-
-They are together because they answer one question between them, and because an MCP
-server is graded as one artifact: a monorepo of 32 packages has no tool surface a client
-can read, and four servers would be four listings of one idea.
-
-## Tests
-
-```bash
-uv sync --all-groups   # no runtime dependencies; the dev group is pytest,
-                       # ruff and jsonschema
-uv run pytest -q
+  median 59.9%, worst 30.8%, best 78.5%
 ```
 
-The four tools' own suites, carried over unchanged apart from their import paths, plus
-a set that drives the MCP server over a pipe the way a client does: the protocol, the
-difference between a protocol error and a correctable tool result, the confinement, and
-a check that every tool's output matches its declared schema on every path. Another
-pins this README's own numbers to the code, because every repository here that stated a
-count in prose eventually stated a wrong one. CI runs all of it on Python 3.10 to 3.13
-and then starts the server.
+Plan against the median: on someone else's code the tool binds about three call sites in
+five, and on a decorator-driven framework fewer than one in three. Of the unresolved calls,
+64% are `variable.method` where nothing states the variable's type (the ceiling of AST-only
+resolution), 22% bare names, 11% multi-hop attributes and 3% `Class.method` on a class the
+project owns. Following return annotations (`app = make_app()` where `make_app() -> App`)
+resolves `app.route` to `App.route`.
 
-## License
+## Tech stack
 
-MIT. See [LICENSE](LICENSE).
+- Python 3.10+, standard library only (`ast`, `json`, `subprocess` for `git`)
+- MCP over stdio (JSON-RPC), with `inputSchema` / `outputSchema` per tool; `server.json`
+  is the MCP Registry manifest
+- git (history tools)
+- pytest, ruff, jsonschema (dev only), GitHub Actions on Python 3.10 to 3.13
+
+## Run it
+
+```bash
+git clone https://github.com/hammasbuilds/repo-recon
+cd repo-recon
+pip install -e .
+repo-recon-mcp --check     # prints what it exposes and exits
+python demo.py             # all six tools on this repository
+
+uv sync --all-groups && uv run pytest -q
+```
+
+Add it to an MCP client (Claude Code, or anything that speaks the protocol):
+
+```json
+{
+  "mcpServers": {
+    "repo-recon": {
+      "command": "repo-recon-mcp",
+      "env": { "REPO_RECON_ROOT": "/path/to/your/code" }
+    }
+  }
+}
+```
+
+`REPO_RECON_ROOT` is optional and worth setting: every path argument is resolved and refused
+if it falls outside it. See [SECURITY.md](SECURITY.md).
+
+`server.json` declares `registryType: "pypi"` at the package's current version, which is
+what the [MCP Registry](https://registry.modelcontextprotocol.io) needs and
+is **not** a statement that the upload has happened: this package is not on PyPI yet.
+Upload to PyPI first, then submit the manifest; submitted earlier, every client that
+installs from it fails at `uvx repo-recon`.
+
+What it will and will not do:
+
+- **No network.** Nothing opens a socket.
+- **No writes through the MCP server.** All six tools only read; a test fingerprints every
+  file under a repository, calls all six tools, and diffs. The command line is a different
+  surface: `migration-pilot apply --write` rewrites the files it is pointed at, and is
+  reachable only from a shell.
+- **Nothing of yours is executed.** Every subprocess is `git` with a fixed argument list and
+  `shell=False`: **five** per history call (`rev-parse --verify`, `log`, `rev-parse
+  --absolute-git-dir`, `rev-parse --is-shallow-repository`, `ls-files -z`) and **six** when
+  `REPO_RECON_ROOT` is set, none for `map_repo`, `trace_impact`, `check_modernisation` or
+  `review_diff`.
+- **No dependencies.** Standard library only.
+- It is not a security scanner, and `review_diff`'s surviving findings are a noise filter,
+  not a guarantee.
+
+## Licence
+
+MIT, see [LICENSE](LICENSE).
