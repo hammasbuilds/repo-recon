@@ -62,6 +62,15 @@ class Symbol:
     is_public: bool
     docstring: str | None = None
     decorators: tuple[str, ...] = ()
+    #: The type this function's annotation says it returns, as written: "App" for
+    #: `def make_app() -> App`. Empty for a class, or an unannotated function.
+    #:
+    #: Held so that `app = make_app()` can bind `app` to `App`. A factory function and a
+    #: pytest fixture are the same shape, and a variable assigned from one used to bind
+    #: to the FUNCTION, after which the resolver looked for a method on it and found
+    #: none: across twelve real projects this is the single largest class of call the
+    #: resolver could see the answer to and did not use.
+    returns: str = ""
 
     @property
     def span(self) -> int:
@@ -347,6 +356,13 @@ class _Visitor(ast.NodeVisitor):
                 is_public=not node.name.startswith("_"),
                 docstring=ast.get_docstring(node),
                 decorators=tuple(_decorator_name(d) for d in node.decorator_list),
+                returns=(
+                    ""
+                    if isinstance(node, ast.ClassDef)
+                    else _annotation_name(node.returns)
+                    if node.returns is not None
+                    else ""
+                ),
             )
         )
 

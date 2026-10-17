@@ -107,15 +107,66 @@ counts are never added together.
 ## The denominator is the measurement
 
 `map_repo` returns two resolution rates, and which one you read decides whether the
-number means anything. Of the call sites in this repository, **27.6%** bind to a
+number means anything. Of the call sites in this repository, **27.3%** bind to a
 definition here. Of the call sites that *could* — excluding `len`, `print`, and every
-method on a third-party object — **93.0%** do.
+method on a third-party object — **93.7%** do.
 
 The first number measures nothing. Most calls in any codebase are to code the repository
 does not own, and counting them in the denominator makes every repository look
 unmappable. The first version of the underlying tool reported 12% and the fix was the
 denominator, not the resolver. `repo_resolution_rate` is the one to read; both are
 returned, and the tool description says which is which.
+
+### That 93.6% is this repository, which is the easy case
+
+It is one data point about one codebase, written by one person in one style with no
+metaclasses, no plugin registry and almost no dynamic dispatch. `scripts/fetch_corpus.py`
+fetches twelve real projects at pinned tags and `scripts/resolution_sweep.py` runs the
+same tool over each — chosen for the things that defeat static resolution, not for
+popularity:
+
+```
+  project        modules  symbols     lines    repo     all
+  ----------------------------------------------------------
+  attrs               51    1,558    17,569  52.9%  32.0%
+  black              261    2,305   125,828  52.8%  21.0%
+  click               47    1,277    16,373  66.4%  38.3%
+  flask               65    1,498    16,862  30.8%  16.9%
+  httpx               60    1,248    18,011  65.4%  35.8%
+  jinja               60    1,770    22,532  58.2%  34.7%
+  pydantic           292   10,216   110,092  71.2%  39.8%
+  pytest             256    6,109    92,545  61.6%  39.6%
+  requests            36      753    11,245  35.9%  19.2%
+  rich               190    2,016    38,773  78.5%  53.8%
+  sqlalchemy         687   37,006   576,683  66.3%  47.6%
+  starlette           67    1,524    17,123  54.3%  35.4%
+
+  median 59.9%, worst 30.8%, best 78.5%
+```
+
+**Read the median, not this repository's figure.** On someone else's code the tool binds
+about three call sites in five, and on a decorator-driven framework fewer than one in
+three. That is the number to plan against when `map_repo` tells you what calls what.
+
+Where the rest goes, grouped by the shape of the call site:
+
+```
+    64%  variable.method - the variable's type is not stated anywhere
+    22%  a bare name
+    11%  a.b.c - more than one hop
+     3%  Class.method - a class this project owns
+```
+
+The 64% is the ceiling of AST-only resolution, not a missing feature: nothing in
+`client.get(...)` says what `client` is, and the fixture that produced it carries no
+annotation either. The last 3% is the part that is a gap rather than a limit.
+
+The inference that *is* there is worth stating exactly, because the reason to keep it is
+that it is correct and not that it moved a number. `app = make_app()` where
+`make_app() -> App` now resolves `app.route` to `App.route`, one hop, following the
+return annotation the repository already wrote. Over these twelve projects that took the
+median from 59.7% to 59.9% — it applies rarely, because most of their factories and
+fixtures are unannotated.
 
 ## Output
 
@@ -126,9 +177,9 @@ This tool measures the repository it lives in, so every commit that adds a test 
 ```
 map_repo - what is in here
 --------------------------
-56 modules, 659 symbols, 14,133 lines
-call graph: 1066 of 1146 in-scope calls bound to a definition here (93.0%)
-  the same number over EVERY call site, builtins included: 27.6% - which measures nothing
+59 modules, 674 symbols, 14,624 lines
+call graph: 1094 of 1168 in-scope calls bound to a definition here (93.7%)
+  the same number over EVERY call site, builtins included: 27.3% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.cartographer.parse
@@ -137,14 +188,14 @@ core modules by PageRank over the import graph:
   reporecon.captain.risk
 entry points - called by nothing in this repository:
   observability.collect.summarise
-  reporecon.mcp_server.ReconServer.call
   observability.collect.read
   observability.serve.Console.do_GET
   reporecon.reviewbot.verify.FileContext.build
+  observability.serve.Console.do_POST
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 46 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 52 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
   hop_2: demo._run, reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.cartographer.test_annotated_parameters_resolve.test_a_call_on_an_annotated_parameter_resolves
   hop_3: demo.main, tests.test_mcp_server.test_a_bad_integer_argument_says_the_range, tests.test_mcp_server.test_a_link_inside_the_root_does_not_reach_outside_it, tests.test_mcp_server.test_nothing_is_written_while_the_tools_run

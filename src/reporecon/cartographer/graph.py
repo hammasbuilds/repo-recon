@@ -359,6 +359,29 @@ def resolve(repo: ParsedRepo) -> Resolution:
                             owner = _follow_reexports(
                                 imported[cls], renamed.get(cls, cls), imports, by_qualname
                             )
+                        # `app = make_app()` binds `app` to the FUNCTION. Where that
+                        # function says what it returns, follow the annotation to the
+                        # class and look for the method there: a factory and a pytest
+                        # fixture are the same shape, and over twelve real projects this
+                        # was the largest class of call whose answer was in the AST
+                        # already. One hop only - a factory returning a factory is not
+                        # followed, and a wrong guess here is a wrong call edge.
+                        if owner is not None and owner.kind != "class" and owner.returns:
+                            returned = owner.returns
+                            owner = (
+                                local.get(returned)
+                                or (
+                                    _follow_reexports(
+                                        imports.get(owner.module, {})[returned],
+                                        renamed.get(returned, returned),
+                                        imports,
+                                        by_qualname,
+                                    )
+                                    if returned in imports.get(owner.module, {})
+                                    else None
+                                )
+                                or mod_syms.get(owner.module, {}).get(returned)
+                            )
                         if owner is not None:
                             target = cls_methods.get(owner.qualname, {}).get(first)
 

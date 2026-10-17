@@ -5,10 +5,12 @@
 >
 > - **The command is named differently.** This package installs `migration-pilot`; the file
 >   below says `pilot`. Every subcommand is the same.
-> - **There is no `ui/` and no `scripts/` directory in this repository.** Lines like
->   `python ui/server.py` or `cd ui && npm install` describe a frontend that was never
->   part of the extracted package. What ships is the library, the command line and the
->   MCP server.
+> - **There is no `ui/` in this repository, and none of the scripts named below.** Lines
+>   like `python ui/server.py` or `cd ui && npm install` describe a frontend that was
+>   never part of the extracted package, and `prove_utcnow.py` was never extracted
+>   either. What ships is the library, the command line and the MCP server.
+>   There *is* a `scripts/` directory, holding the two that build and measure the
+>   twelve-project corpus the main README quotes.
 > - **The figures are undated and were measured over checkouts that have since moved.**
 >   They were taken over a folder of local repositories whose contents change daily, and
 >   none of them names a revision. The reproducible figures are in

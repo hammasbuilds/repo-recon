@@ -40,7 +40,13 @@ PACKAGES = {
 }
 
 #: Directories the headers say are not here. The claim, checked.
-ABSENT = ("ui", "scripts")
+ABSENT = ("ui",)
+
+#: Scripts the kept README names that were never extracted. `scripts/` itself now exists
+#: - it holds the corpus build and the resolution sweep the main README quotes - so the
+#: claim that the whole directory is absent became false, and what is worth checking is
+#: the files the body actually names.
+ABSENT_SCRIPTS = ("prove_utcnow.py",)
 
 
 def test_every_kept_readme_is_one_of_the_four():
@@ -87,6 +93,14 @@ def test_the_directories_the_headers_say_are_absent_are_absent(directory: str):
     assert found == [], f"{directory}/ exists now: {found}"
 
 
+@pytest.mark.parametrize("name", ABSENT_SCRIPTS)
+def test_the_scripts_the_headers_say_are_absent_are_absent(name: str):
+    """The body offers `python scripts/prove_utcnow.py`; the header says it is not here."""
+    venvs = {p.parent for p in ROOT.rglob("pyvenv.cfg")}
+    found = [p for p in ROOT.rglob(name) if not any(v in p.parents for v in venvs)]
+    assert found == [], f"{name} exists now: {found}"
+
+
 @pytest.mark.parametrize("filename", sorted(PACKAGES))
 def test_a_reader_is_warned_about_the_commands_in_the_body(filename: str):
     """The bodies really do carry the old command names and the UI lines; that is why
@@ -96,8 +110,11 @@ def test_a_reader_is_warned_about_the_commands_in_the_body(filename: str):
     head, _, body = text.partition("---")
     if re.search(r"\bui/|npm install|npm run dev", body):
         assert "no `ui/`" in head, filename
-    if "scripts/" in body:
-        assert "no `scripts/`" in head, filename
+    # `scripts/` exists now, so the header no longer denies the directory. What it has to
+    # cover is every script the body offers to run, by name.
+    for name in ABSENT_SCRIPTS:
+        if name in body:
+            assert name in head, (filename, name)
 
 
 @pytest.mark.parametrize("filename", sorted(PACKAGES))
