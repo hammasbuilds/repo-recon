@@ -57,6 +57,62 @@ retracted. The two numbers worth reading first: 93.7% of in-scope calls bound to
 definition, and of 1,099 proposed findings 1,092 did not survive being tested against
 the file's full context. A retracted finding is not a finding.
 
+### The page, driven end to end
+
+[`docs/demo/repo-recon-demo.mp4`](docs/demo/repo-recon-demo.mp4) — 50 seconds, every
+tool below called in the browser. The screenshots are frames of that same run.
+
+![About, and what it will not do](docs/screenshots/03-about-and-limits.png)
+*What each of the six tools answers, and the four things the server will not do.*
+
+![Mapping a checkout it has never seen](docs/screenshots/04-map-a-repository.png)
+*Input: `D:\github\pak-law-assistant`. Output: 45 modules and 836 symbols over 17,640
+lines of a checkout this repository has never seen, the modules to read first, and the
+entry points nothing calls — from the AST, with nothing imported.*
+
+![Two resolution rates](docs/screenshots/05-two-resolution-rates.png)
+*The same repository, two numbers: 1,422 of 1,583 in-scope calls bound to a definition
+(89.8%), and 1,422 of 4,729 calls of any kind (30.1%). Which one you quote decides
+whether the number means anything.*
+
+![Mechanical and behavioural, counted apart](docs/screenshots/06-mechanical-vs-behavioural.png)
+*Input: a sample module written to be out of date. Output: 7 mechanical edits and 1
+behavioural one, never added together — `utcnow()` to `now(UTC)` is correct* and *changes
+meaning.*
+
+![map_repo](docs/screenshots/07-tool-map-repo.png)
+*The same map, called as a tool, with the six most important modules by PageRank over
+the import graph.*
+
+![trace_impact](docs/screenshots/08-tool-trace-impact.png)
+*Input: symbol `expand`, depth 3. Output: resolved to `paklaw.retrieve.expand`, then
+everything that reaches it, by hop.*
+
+![check_modernisation](docs/screenshots/09-tool-check-modernisation.png)
+*Input: the sample directory. Output: every edit with its rule, its line, the text
+before and the replacement.*
+
+![review_diff on a whole file](docs/screenshots/10-tool-review-diff.png)
+*Input: a module with seven planted defects. Output: 7 proposed, 4 confirmed, 3
+retracted — each retraction printed with the reason it was thrown away (already inside a
+`with`, marked `noqa`, marked `noqa`).*
+
+![review_diff on one change](docs/screenshots/11-tool-review-diff-of-a-change.png)
+*The same file with a diff attached: findings are filtered to the lines the change adds,
+so the six defects that were already there are not reported as problems with this change.
+1 proposed, 1 confirmed.*
+
+![release_readiness](docs/screenshots/12-tool-release-readiness.png)
+*Input: the pak-law checkout. Output: a verdict over 71 commits, 4 of 4 checks measured,
+each with the commit that makes it so.*
+
+![riskiest_commits](docs/screenshots/13-tool-riskiest-commits.png)
+*Commits scored against this repository's own median churn, with the components returned
+beside the score so it can be checked.*
+
+![Dark](docs/screenshots/14-dark.png)
+*The same page in the dark theme.*
+
 ## Sample input / output
 
 A `tools/call` over stdio, as an MCP client sends it, on a seven-line file:
