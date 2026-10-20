@@ -113,6 +113,35 @@ beside the score so it can be checked.*
 ![Dark](docs/screenshots/14-dark.png)
 *The same page in the dark theme.*
 
+### How it works, in motion
+
+All six tools as isometric animations, plus two architecture views. A **flow** follows one call from its
+arguments to its answer; an **architecture** view shows the layers of the package and the path a call takes
+through them, down to how a single call site in a file becomes an edge in the graph. Each is one
+self-contained HTML file.
+
+All 8 are in [`docs/isometric/`](docs/isometric/) — [start at the index](docs/isometric/index.html). 2
+architecture, 6 flow.
+
+![repo-recon](docs/isometric/scenes/arch-reporecon.gif)
+*Four layers and ten steps: a path arrives at `mcp_server` and is refused if it escapes the root, every file
+is read as a tree, calls are bound to definitions, both resolution rates are reported, and findings are
+proposed and then retracted.* · [open the animation](docs/isometric/scenes/arch-reporecon.html) ·
+[mp4](docs/isometric/scenes/arch-reporecon.mp4)
+
+![one call site, resolved](docs/isometric/scenes/arch-reporecon-resolve.png)
+*One call site, resolved: symbols, imports and return annotations collected, the call ruled in or out of
+scope, bound, and followed one hop through a factory - ending at the two denominators, 1,168 in-scope calls
+and 4,011 of any kind.* · [open the animation](docs/isometric/scenes/arch-reporecon-resolve.html) ·
+[mp4](docs/isometric/scenes/arch-reporecon-resolve.mp4)
+
+![review_diff](docs/isometric/scenes/flow-reporecon-review-diff.png)
+*The flow view of the tool the repository is really about: 7 findings proposed, 4 confirmed, 3 retracted,
+each retraction carrying the reason it was thrown away.* · [open the
+animation](docs/isometric/scenes/flow-reporecon-review-diff.html) ·
+[mp4](docs/isometric/scenes/flow-reporecon-review-diff.mp4)
+
+
 ## Sample input / output
 
 A `tools/call` over stdio, as an MCP client sends it, on a seven-line file:

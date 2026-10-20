@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>one call site, resolved - architecture</title>
+<style>
+  :root {
+    --accent: #3b82f6; --accent-soft: #1d4ed8;
+    --bg0: #080c16; --bg1: #0e1424; --ink: #eef3fb; --dim: #93a6c4;
+    --top: #1e2a44; --left: #141c30; --right: #0e1424;
+    --edge: #2d3f63; --grid: #162138;
+    --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg0); }
+  body { display: grid; place-items: center; }
+  .frame { width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; }
+  svg { display: block; width: 100%; height: 100%; }
+
+  .sky { fill: url(#sky); }
+  .grid line { stroke: var(--grid); stroke-width: 1; opacity: .55; }
+  .shadow { fill: #000; opacity: .32; filter: url(#soft); }
+  .rail { stroke: var(--edge); stroke-width: 2; stroke-dasharray: 4 6; opacity: .75; }
+  .flow { stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
+           stroke-dasharray: 18 18; opacity: 0; }
+
+  .face { stroke: var(--edge); stroke-width: 1.2; stroke-linejoin: round; }
+  .face.top { fill: var(--top); }
+  .face.top.end { fill: var(--accent-soft); }
+  .face.left { fill: var(--left); }
+  .face.right { fill: var(--right); }
+  .lit { fill: var(--accent); opacity: 0; filter: url(#glow); }
+
+  .slabname { font: 600 15px/1 var(--mono); fill: var(--dim); text-anchor: middle;
+               letter-spacing: .04em; }
+
+  .tk-top { fill: #fff; }
+  .tk-left { fill: var(--accent); }
+  .tk-right { fill: var(--accent-soft); }
+  .token { filter: url(#glow); }
+
+  .caption { opacity: 0; }
+  .cap-step { font: 700 26px/1 var(--mono); fill: var(--accent); }
+  .cap-name { font: 700 26px/1 var(--mono); fill: var(--ink); letter-spacing: .02em; }
+  .cap-note { font: 400 19px/1 var(--mono); fill: var(--dim); }
+
+  .card rect { fill: rgba(255,255,255,.035); stroke: var(--edge); stroke-width: 1.2; }
+  .card-label { font: 700 13px/1 var(--mono); fill: var(--accent); letter-spacing: .18em; }
+  .card-line { font: 400 17px/1 var(--mono); fill: var(--ink); }
+  .tie { stroke: var(--edge); stroke-width: 1.5; stroke-dasharray: 3 5; }
+
+  .title { font: 700 34px/1 var(--mono); fill: var(--ink); letter-spacing: -.01em; }
+  .subtitle { font: 400 19px/1 var(--mono); fill: var(--dim); }
+  .repo { font: 600 15px/1 var(--mono); fill: var(--accent); text-anchor: end;
+           letter-spacing: .1em; }
+  .footer { font: 400 14px/1 var(--mono); fill: var(--dim); }
+  .bar-bg { fill: var(--edge); opacity: .4; }
+  .bar { fill: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* The still frame is the end of the run: every slab lit and the output showing. */
+    * { animation: none !important; }
+    .lit, .out, .caption { opacity: 1 !important; }
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+<svg viewBox="0 0 1280 720" role="img" aria-label="one call site, resolved - architecture">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#0e1424"/>
+      <stop offset="1" stop-color="#080c16"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect class="sky" x="0" y="0" width="1280" height="720"/>
+  <g class="floor"><polygon class="fl-side" points="1184.2,610.6 1094.6,655.4 1094.6,668.4 1184.2,623.6"/><polygon class="fl-side dark" points="883.4,549.8 1094.6,655.4 1094.6,668.4 883.4,562.8"/><polygon class="fl-top" points="973.0,505.0 1184.2,610.6 1094.6,655.4 883.4,549.8"/></g>
+<text class="layer-name" x="865.4" y="523.8">text</text>
+<text class="layer-note" x="865.4" y="542.8">a file, as characters</text>
+<g class="tile"><polygon class="tl-right" points="1026.8,533.8 974.3,560.0 974.3,576.0 1026.8,549.8"/><polygon class="tl-left" points="921.8,533.8 974.3,560.0 974.3,576.0 921.8,549.8"/><polygon class="tl-top" points="974.3,507.6 1026.8,533.8 974.3,560.0 921.8,533.8"/><polygon class="tl-lit t0_0" points="974.3,507.6 1026.8,533.8 974.3,560.0 921.8,533.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1154.8,597.8 1102.3,624.0 1102.3,640.0 1154.8,613.8"/><polygon class="tl-left" points="1049.8,597.8 1102.3,624.0 1102.3,640.0 1049.8,613.8"/><polygon class="tl-top" points="1102.3,571.6 1154.8,597.8 1102.3,624.0 1049.8,597.8"/><polygon class="tl-lit t0_1" points="1102.3,571.6 1154.8,597.8 1102.3,624.0 1049.8,597.8"/></g>
+<text class="tl-name t0_0l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,974.3,533.8)" x="0" y="2">read</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,974.3,533.8)" x="0" y="17">bytes</text>
+<text class="tl-name t0_1l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,597.8)" x="0" y="2">ast</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,597.8)" x="0" y="17">tree</text>
+<g class="floor"><polygon class="fl-side" points="1184.2,474.6 1094.6,519.4 1094.6,532.4 1184.2,487.6"/><polygon class="fl-side dark" points="883.4,413.8 1094.6,519.4 1094.6,532.4 883.4,426.8"/><polygon class="fl-top" points="973.0,369.0 1184.2,474.6 1094.6,519.4 883.4,413.8"/></g>
+<text class="layer-name" x="865.4" y="387.8">names</text>
+<text class="layer-note" x="865.4" y="406.8">what is defined here</text>
+<g class="tile"><polygon class="tl-right" points="1026.8,397.8 974.3,424.0 974.3,440.0 1026.8,413.8"/><polygon class="tl-left" points="921.8,397.8 974.3,424.0 974.3,440.0 921.8,413.8"/><polygon class="tl-top" points="974.3,371.6 1026.8,397.8 974.3,424.0 921.8,397.8"/><polygon class="tl-lit t1_0" points="974.3,371.6 1026.8,397.8 974.3,424.0 921.8,397.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1090.8,429.8 1038.3,456.0 1038.3,472.0 1090.8,445.8"/><polygon class="tl-left" points="985.8,429.8 1038.3,456.0 1038.3,472.0 985.8,445.8"/><polygon class="tl-top" points="1038.3,403.6 1090.8,429.8 1038.3,456.0 985.8,429.8"/><polygon class="tl-lit t1_1" points="1038.3,403.6 1090.8,429.8 1038.3,456.0 985.8,429.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1154.8,461.8 1102.3,488.0 1102.3,504.0 1154.8,477.8"/><polygon class="tl-left" points="1049.8,461.8 1102.3,488.0 1102.3,504.0 1049.8,477.8"/><polygon class="tl-top" points="1102.3,435.6 1154.8,461.8 1102.3,488.0 1049.8,461.8"/><polygon class="tl-lit t1_2" points="1102.3,435.6 1154.8,461.8 1102.3,488.0 1049.8,461.8"/></g>
+<text class="tl-name t1_0l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,974.3,397.8)" x="0" y="2">symbols</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,974.3,397.8)" x="0" y="17">def, class</text>
+<text class="tl-name t1_1l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,429.8)" x="0" y="2">imports</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,429.8)" x="0" y="17">from · as</text>
+<text class="tl-name t1_2l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,461.8)" x="0" y="2">returns</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,461.8)" x="0" y="17">-&gt; Type</text>
+<g class="floor"><polygon class="fl-side" points="1184.2,338.6 1094.6,383.4 1094.6,396.4 1184.2,351.6"/><polygon class="fl-side dark" points="883.4,277.8 1094.6,383.4 1094.6,396.4 883.4,290.8"/><polygon class="fl-top" points="973.0,233.0 1184.2,338.6 1094.6,383.4 883.4,277.8"/></g>
+<text class="layer-name" x="865.4" y="251.8">binding</text>
+<text class="layer-note" x="865.4" y="270.8">what each call means</text>
+<g class="tile"><polygon class="tl-right" points="1026.8,261.8 974.3,288.0 974.3,304.0 1026.8,277.8"/><polygon class="tl-left" points="921.8,261.8 974.3,288.0 974.3,304.0 921.8,277.8"/><polygon class="tl-top" points="974.3,235.6 1026.8,261.8 974.3,288.0 921.8,261.8"/><polygon class="tl-lit t2_0" points="974.3,235.6 1026.8,261.8 974.3,288.0 921.8,261.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1090.8,293.8 1038.3,320.0 1038.3,336.0 1090.8,309.8"/><polygon class="tl-left" points="985.8,293.8 1038.3,320.0 1038.3,336.0 985.8,309.8"/><polygon class="tl-top" points="1038.3,267.6 1090.8,293.8 1038.3,320.0 985.8,293.8"/><polygon class="tl-lit t2_1" points="1038.3,267.6 1090.8,293.8 1038.3,320.0 985.8,293.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1154.8,325.8 1102.3,352.0 1102.3,368.0 1154.8,341.8"/><polygon class="tl-left" points="1049.8,325.8 1102.3,352.0 1102.3,368.0 1049.8,341.8"/><polygon class="tl-top" points="1102.3,299.6 1154.8,325.8 1102.3,352.0 1049.8,325.8"/><polygon class="tl-lit t2_2" points="1102.3,299.6 1154.8,325.8 1102.3,352.0 1049.8,325.8"/></g>
+<text class="tl-name t2_0l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,974.3,261.8)" x="0" y="2">in scope</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,974.3,261.8)" x="0" y="17">ours?</text>
+<text class="tl-name t2_1l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,293.8)" x="0" y="2">bind</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,293.8)" x="0" y="17">name → def</text>
+<text class="tl-name t2_2l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,325.8)" x="0" y="2">one hop</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,325.8)" x="0" y="17">factories</text>
+<g class="floor"><polygon class="fl-side" points="1184.2,202.6 1094.6,247.4 1094.6,260.4 1184.2,215.6"/><polygon class="fl-side dark" points="883.4,141.8 1094.6,247.4 1094.6,260.4 883.4,154.8"/><polygon class="fl-top" points="973.0,97.0 1184.2,202.6 1094.6,247.4 883.4,141.8"/></g>
+<text class="layer-name" x="865.4" y="115.8">counting</text>
+<text class="layer-note" x="865.4" y="134.8">and the denominator</text>
+<g class="tile"><polygon class="tl-right" points="1026.8,125.8 974.3,152.0 974.3,168.0 1026.8,141.8"/><polygon class="tl-left" points="921.8,125.8 974.3,152.0 974.3,168.0 921.8,141.8"/><polygon class="tl-top" points="974.3,99.6 1026.8,125.8 974.3,152.0 921.8,125.8"/><polygon class="tl-lit t3_0" points="974.3,99.6 1026.8,125.8 974.3,152.0 921.8,125.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1090.8,157.8 1038.3,184.0 1038.3,200.0 1090.8,173.8"/><polygon class="tl-left" points="985.8,157.8 1038.3,184.0 1038.3,200.0 985.8,173.8"/><polygon class="tl-top" points="1038.3,131.6 1090.8,157.8 1038.3,184.0 985.8,157.8"/><polygon class="tl-lit t3_1" points="1038.3,131.6 1090.8,157.8 1038.3,184.0 985.8,157.8"/></g>
+<g class="tile"><polygon class="tl-right" points="1154.8,189.8 1102.3,216.0 1102.3,232.0 1154.8,205.8"/><polygon class="tl-left" points="1049.8,189.8 1102.3,216.0 1102.3,232.0 1049.8,205.8"/><polygon class="tl-top" points="1102.3,163.6 1154.8,189.8 1102.3,216.0 1049.8,189.8"/><polygon class="tl-lit t3_2" points="1102.3,163.6 1154.8,189.8 1102.3,216.0 1049.8,189.8"/></g>
+<text class="tl-name t3_0l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,974.3,125.8)" x="0" y="2">resolved</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,974.3,125.8)" x="0" y="17">1,094</text>
+<text class="tl-name t3_1l" style="font-size:13.0px" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,157.8)" x="0" y="2">in scope</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1038.3,157.8)" x="0" y="17">1,168</text>
+<text class="tl-name t3_2l" style="font-size:11.6px" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,189.8)" x="0" y="2">all calls</text>
+<text class="tl-meta" transform="matrix(0.970,0.485,-0.970,0.485,1102.3,189.8)" x="0" y="17">4,011</text>
+<line class="hop h0" x1="974.3" y1="533.8" x2="1102.3" y2="597.8"/>
+<line class="hop h1" x1="1102.3" y1="597.8" x2="974.3" y2="397.8"/>
+<line class="hop h2" x1="974.3" y1="397.8" x2="1038.3" y2="429.8"/>
+<line class="hop h3" x1="1038.3" y1="429.8" x2="1102.3" y2="461.8"/>
+<line class="hop h4" x1="1102.3" y1="461.8" x2="974.3" y2="261.8"/>
+<line class="hop h5" x1="974.3" y1="261.8" x2="1038.3" y2="293.8"/>
+<line class="hop h6" x1="1038.3" y1="293.8" x2="1102.3" y2="325.8"/>
+<line class="hop h7" x1="1102.3" y1="325.8" x2="1038.3" y2="157.8"/>
+<line class="hop h8" x1="1038.3" y1="157.8" x2="1102.3" y2="189.8"/>
+<g class="token"><polygon class="tk-top" points="0,-10 12,-4 0,2 -12,-4"/><polygon class="tk-left" points="-12,-4 0,2 0,13 -12,7"/><polygon class="tk-right" points="12,-4 0,2 0,13 12,7"/></g>
+<g class="caption c0"><text class="cap-step" x="96" y="598">01</text><text class="cap-name" x="150" y="598">read the file</text><text class="cap-note" x="150" y="626">as text. The interpreter is never asked what this</text><text class="cap-note" x="150" y="654">module means</text></g>
+<g class="caption c1"><text class="cap-step" x="96" y="598">02</text><text class="cap-name" x="150" y="598">parse to a tree</text><text class="cap-note" x="150" y="626">a syntax error is reported as one, not swallowed</text><text class="cap-note" x="150" y="654">as an empty file</text></g>
+<g class="caption c2"><text class="cap-step" x="96" y="598">03</text><text class="cap-name" x="150" y="598">collect the symbols</text><text class="cap-note" x="150" y="626">every def and class this repository defines, with</text><text class="cap-note" x="150" y="654">where it lives</text></g>
+<g class="caption c3"><text class="cap-step" x="96" y="598">04</text><text class="cap-name" x="150" y="598">follow the imports</text><text class="cap-note" x="150" y="626">including aliases, so `from x import y as z` still</text><text class="cap-note" x="150" y="654">points at y</text></g>
+<g class="caption c4"><text class="cap-step" x="96" y="598">05</text><text class="cap-name" x="150" y="598">read return annotations</text><text class="cap-note" x="150" y="626">`-&gt; Index` on a factory says what the thing it</text><text class="cap-note" x="150" y="654">hands back is</text></g>
+<g class="caption c5"><text class="cap-step" x="96" y="598">06</text><text class="cap-name" x="150" y="598">is this call ours?</text><text class="cap-note" x="150" y="626">json.loads is not this repository&#x27;s code and is</text><text class="cap-note" x="150" y="654">not its denominator</text></g>
+<g class="caption c6"><text class="cap-step" x="96" y="598">07</text><text class="cap-name" x="150" y="598">bind it</text><text class="cap-note" x="150" y="626">the name at the call site matched to the</text><text class="cap-note" x="150" y="654">definition it must mean</text></g>
+<g class="caption c7"><text class="cap-step" x="96" y="598">08</text><text class="cap-name" x="150" y="598">one hop through the factory</text><text class="cap-note" x="150" y="626">make_index().search() binds, because the</text><text class="cap-note" x="150" y="654">annotation said what it returns</text></g>
+<g class="caption c8"><text class="cap-step" x="96" y="598">09</text><text class="cap-name" x="150" y="598">the honest rate</text><text class="cap-note" x="150" y="626">1,094 of 1,168 in-scope calls — 93.7%, and that is</text><text class="cap-note" x="150" y="654">the one to quote</text></g>
+<g class="caption c9"><text class="cap-step" x="96" y="598">10</text><text class="cap-name" x="150" y="598">the flattering one</text><text class="cap-note" x="150" y="626">1,094 of 4,011 is 27.3%, and most of what it</text><text class="cap-note" x="150" y="654">counts is the standard library</text></g>
+<g class="facts"><text class="fact-label" x="96" y="162">IN THIS REPOSITORY</text><text class="fact" x="96" y="196">1,168 in-scope calls in this repo</text><text class="fact" x="96" y="226">1,094 of them bound to a definition</text><text class="fact" x="96" y="256">the other denominator: 4,011 calls</text><text class="fact" x="96" y="286">one of those numbers measures nothing</text></g>
+<rect class="bar-bg" x="96" y="694" width="620" height="3" rx="1.5"/>
+<rect class="bar" x="96" y="694" width="620" height="3" rx="1.5"/>
+  <!-- The title block is painted last so nothing in the scene can cross it. -->
+  <text class="title" x="96" y="78">one call site, resolved</text><text class="subtitle" x="96" y="112">how a name in a file becomes an edge in a graph</text><text class="repo" x="1184" y="78">repo-recon</text>
+  <text class="footer" x="96" y="676">93.7% of in-scope calls bind · 27.3% of calls of any kind</text>
+</svg>
+</div>
+<style>
+
+  .fl-top { fill: rgba(255,255,255,.045); stroke: var(--edge); stroke-width: 1.2; }
+  .fl-side { fill: rgba(0,0,0,.45); stroke: var(--edge); stroke-width: 1; }
+  .fl-side.dark { fill: rgba(0,0,0,.62); }
+  .tl-top { fill: var(--top); stroke: var(--edge); stroke-width: 1; }
+  .tl-left { fill: var(--left); stroke: var(--edge); stroke-width: 1; }
+  .tl-right { fill: var(--right); stroke: var(--edge); stroke-width: 1; }
+  .tl-lit { fill: var(--accent); opacity: 0; filter: url(#glow); }
+  .tl-name { font: 600 13px/1 var(--mono); fill: var(--dim); text-anchor: middle; }
+  .tl-meta { font: 400 11px/1 var(--mono); fill: var(--dim); text-anchor: middle;
+             opacity: .72; }
+  .layer-name { font: 700 17px/1 var(--mono); fill: var(--ink); text-anchor: end;
+                letter-spacing: .02em; }
+  .layer-note { font: 400 13px/1 var(--mono); fill: var(--dim); text-anchor: end; }
+  .hop { stroke: var(--accent); stroke-width: 3; stroke-linecap: round;
+         stroke-dasharray: 15 15; opacity: 0; }
+  .fact-label { font: 700 12px/1 var(--mono); fill: var(--accent); letter-spacing: .18em; }
+  .fact { font: 400 17px/1 var(--mono); fill: var(--ink); }
+.t0_0 { animation: at0_0 22.88s linear infinite; }
+@keyframes at0_0 { 0% { opacity: 0; } 0.01% { opacity: 0; } 0.00% { opacity: 1; } 6.34% { opacity: 1; } 8.34% { opacity: 0; } 100% { opacity: 0; } }
+.t0_0l { animation: nt0_0 22.88s linear infinite; }
+@keyframes nt0_0 { 0% { fill: #93a6c4; } 0.01% { fill: #93a6c4; } 0.00% { fill: #eef3fb; } 6.34% { fill: #eef3fb; } 8.34% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t0_1 { animation: at0_1 22.88s linear infinite; }
+@keyframes at0_1 { 0% { opacity: 0; } 8.48% { opacity: 0; } 9.48% { opacity: 1; } 15.82% { opacity: 1; } 17.82% { opacity: 0; } 100% { opacity: 0; } }
+.t0_1l { animation: nt0_1 22.88s linear infinite; }
+@keyframes nt0_1 { 0% { fill: #93a6c4; } 8.48% { fill: #93a6c4; } 9.48% { fill: #eef3fb; } 15.82% { fill: #eef3fb; } 17.82% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t1_0 { animation: at1_0 22.88s linear infinite; }
+@keyframes at1_0 { 0% { opacity: 0; } 17.97% { opacity: 0; } 18.97% { opacity: 1; } 25.31% { opacity: 1; } 27.31% { opacity: 0; } 100% { opacity: 0; } }
+.t1_0l { animation: nt1_0 22.88s linear infinite; }
+@keyframes nt1_0 { 0% { fill: #93a6c4; } 17.97% { fill: #93a6c4; } 18.97% { fill: #eef3fb; } 25.31% { fill: #eef3fb; } 27.31% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t1_1 { animation: at1_1 22.88s linear infinite; }
+@keyframes at1_1 { 0% { opacity: 0; } 27.45% { opacity: 0; } 28.45% { opacity: 1; } 34.79% { opacity: 1; } 36.79% { opacity: 0; } 100% { opacity: 0; } }
+.t1_1l { animation: nt1_1 22.88s linear infinite; }
+@keyframes nt1_1 { 0% { fill: #93a6c4; } 27.45% { fill: #93a6c4; } 28.45% { fill: #eef3fb; } 34.79% { fill: #eef3fb; } 36.79% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t1_2 { animation: at1_2 22.88s linear infinite; }
+@keyframes at1_2 { 0% { opacity: 0; } 36.94% { opacity: 0; } 37.94% { opacity: 1; } 44.27% { opacity: 1; } 46.27% { opacity: 0; } 100% { opacity: 0; } }
+.t1_2l { animation: nt1_2 22.88s linear infinite; }
+@keyframes nt1_2 { 0% { fill: #93a6c4; } 36.94% { fill: #93a6c4; } 37.94% { fill: #eef3fb; } 44.27% { fill: #eef3fb; } 46.27% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t2_0 { animation: at2_0 22.88s linear infinite; }
+@keyframes at2_0 { 0% { opacity: 0; } 46.42% { opacity: 0; } 47.42% { opacity: 1; } 53.76% { opacity: 1; } 55.76% { opacity: 0; } 100% { opacity: 0; } }
+.t2_0l { animation: nt2_0 22.88s linear infinite; }
+@keyframes nt2_0 { 0% { fill: #93a6c4; } 46.42% { fill: #93a6c4; } 47.42% { fill: #eef3fb; } 53.76% { fill: #eef3fb; } 55.76% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t2_1 { animation: at2_1 22.88s linear infinite; }
+@keyframes at2_1 { 0% { opacity: 0; } 55.91% { opacity: 0; } 56.91% { opacity: 1; } 63.24% { opacity: 1; } 65.24% { opacity: 0; } 100% { opacity: 0; } }
+.t2_1l { animation: nt2_1 22.88s linear infinite; }
+@keyframes nt2_1 { 0% { fill: #93a6c4; } 55.91% { fill: #93a6c4; } 56.91% { fill: #eef3fb; } 63.24% { fill: #eef3fb; } 65.24% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t2_2 { animation: at2_2 22.88s linear infinite; }
+@keyframes at2_2 { 0% { opacity: 0; } 65.39% { opacity: 0; } 66.39% { opacity: 1; } 72.73% { opacity: 1; } 74.73% { opacity: 0; } 100% { opacity: 0; } }
+.t2_2l { animation: nt2_2 22.88s linear infinite; }
+@keyframes nt2_2 { 0% { fill: #93a6c4; } 65.39% { fill: #93a6c4; } 66.39% { fill: #eef3fb; } 72.73% { fill: #eef3fb; } 74.73% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t3_1 { animation: at3_1 22.88s linear infinite; }
+@keyframes at3_1 { 0% { opacity: 0; } 74.87% { opacity: 0; } 75.87% { opacity: 1; } 82.21% { opacity: 1; } 84.21% { opacity: 0; } 100% { opacity: 0; } }
+.t3_1l { animation: nt3_1 22.88s linear infinite; }
+@keyframes nt3_1 { 0% { fill: #93a6c4; } 74.87% { fill: #93a6c4; } 75.87% { fill: #eef3fb; } 82.21% { fill: #eef3fb; } 84.21% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+.t3_2 { animation: at3_2 22.88s linear infinite; }
+@keyframes at3_2 { 0% { opacity: 0; } 84.36% { opacity: 0; } 85.36% { opacity: 1; } 100.00% { opacity: 1; } 99.99% { opacity: 0; } 100% { opacity: 0; } }
+.t3_2l { animation: nt3_2 22.88s linear infinite; }
+@keyframes nt3_2 { 0% { fill: #93a6c4; } 84.36% { fill: #93a6c4; } 85.36% { fill: #eef3fb; } 100.00% { fill: #eef3fb; } 99.99% { fill: #93a6c4; } 100% { fill: #93a6c4; } }
+
+.h0 { animation: hop0 22.88s linear infinite; }
+@keyframes hop0 {
+  0%, 6.34% { stroke-dashoffset: 30; opacity: 0; }
+  6.35% { opacity: .9; }
+  9.48%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h1 { animation: hop1 22.88s linear infinite; }
+@keyframes hop1 {
+  0%, 15.82% { stroke-dashoffset: 30; opacity: 0; }
+  15.83% { opacity: .9; }
+  18.97%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h2 { animation: hop2 22.88s linear infinite; }
+@keyframes hop2 {
+  0%, 25.31% { stroke-dashoffset: 30; opacity: 0; }
+  25.32% { opacity: .9; }
+  28.45%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h3 { animation: hop3 22.88s linear infinite; }
+@keyframes hop3 {
+  0%, 34.79% { stroke-dashoffset: 30; opacity: 0; }
+  34.80% { opacity: .9; }
+  37.94%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h4 { animation: hop4 22.88s linear infinite; }
+@keyframes hop4 {
+  0%, 44.27% { stroke-dashoffset: 30; opacity: 0; }
+  44.28% { opacity: .9; }
+  47.42%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h5 { animation: hop5 22.88s linear infinite; }
+@keyframes hop5 {
+  0%, 53.76% { stroke-dashoffset: 30; opacity: 0; }
+  53.77% { opacity: .9; }
+  56.91%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h6 { animation: hop6 22.88s linear infinite; }
+@keyframes hop6 {
+  0%, 63.24% { stroke-dashoffset: 30; opacity: 0; }
+  63.25% { opacity: .9; }
+  66.39%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h7 { animation: hop7 22.88s linear infinite; }
+@keyframes hop7 {
+  0%, 72.73% { stroke-dashoffset: 30; opacity: 0; }
+  72.74% { opacity: .9; }
+  75.87%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.h8 { animation: hop8 22.88s linear infinite; }
+@keyframes hop8 {
+  0%, 82.21% { stroke-dashoffset: 30; opacity: 0; }
+  82.22% { opacity: .9; }
+  85.36%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.token { offset-path: path('M 974.3 533.8 L 1102.3 597.8 L 974.3 397.8 L 1038.3 429.8 L 1102.3 461.8 L 974.3 261.8 L 1038.3 293.8 L 1102.3 325.8 L 1038.3 157.8 L 1102.3 189.8'); animation: walk 22.88s linear infinite; }
+@keyframes walk {
+  0.00% { offset-distance: 0.00%; }
+  6.34% { offset-distance: 0.00%; }
+  9.48% { offset-distance: 11.11%; }
+  15.82% { offset-distance: 11.11%; }
+  18.97% { offset-distance: 22.22%; }
+  25.31% { offset-distance: 22.22%; }
+  28.45% { offset-distance: 33.33%; }
+  34.79% { offset-distance: 33.33%; }
+  37.94% { offset-distance: 44.44%; }
+  44.27% { offset-distance: 44.44%; }
+  47.42% { offset-distance: 55.56%; }
+  53.76% { offset-distance: 55.56%; }
+  56.91% { offset-distance: 66.67%; }
+  63.24% { offset-distance: 66.67%; }
+  66.39% { offset-distance: 77.78%; }
+  72.73% { offset-distance: 77.78%; }
+  75.87% { offset-distance: 88.89%; }
+  82.21% { offset-distance: 88.89%; }
+  85.36% { offset-distance: 100.00%; }
+  100.00% { offset-distance: 100.00%; }
+}
+
+.c0 { animation: cap0 22.88s linear infinite; }
+@keyframes cap0 {
+  0%, 0.00% { opacity: 0; transform: translateY(8px); }
+  1.00%, 6.34% { opacity: 1; transform: translateY(0); }
+  7.54%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c1 { animation: cap1 22.88s linear infinite; }
+@keyframes cap1 {
+  0%, 8.68% { opacity: 0; transform: translateY(8px); }
+  10.48%, 15.82% { opacity: 1; transform: translateY(0); }
+  17.02%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c2 { animation: cap2 22.88s linear infinite; }
+@keyframes cap2 {
+  0%, 18.17% { opacity: 0; transform: translateY(8px); }
+  19.97%, 25.31% { opacity: 1; transform: translateY(0); }
+  26.51%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c3 { animation: cap3 22.88s linear infinite; }
+@keyframes cap3 {
+  0%, 27.65% { opacity: 0; transform: translateY(8px); }
+  29.45%, 34.79% { opacity: 1; transform: translateY(0); }
+  35.99%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c4 { animation: cap4 22.88s linear infinite; }
+@keyframes cap4 {
+  0%, 37.14% { opacity: 0; transform: translateY(8px); }
+  38.94%, 44.27% { opacity: 1; transform: translateY(0); }
+  45.47%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c5 { animation: cap5 22.88s linear infinite; }
+@keyframes cap5 {
+  0%, 46.62% { opacity: 0; transform: translateY(8px); }
+  48.42%, 53.76% { opacity: 1; transform: translateY(0); }
+  54.96%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c6 { animation: cap6 22.88s linear infinite; }
+@keyframes cap6 {
+  0%, 56.11% { opacity: 0; transform: translateY(8px); }
+  57.91%, 63.24% { opacity: 1; transform: translateY(0); }
+  64.44%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c7 { animation: cap7 22.88s linear infinite; }
+@keyframes cap7 {
+  0%, 65.59% { opacity: 0; transform: translateY(8px); }
+  67.39%, 72.73% { opacity: 1; transform: translateY(0); }
+  73.93%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c8 { animation: cap8 22.88s linear infinite; }
+@keyframes cap8 {
+  0%, 75.07% { opacity: 0; transform: translateY(8px); }
+  76.87%, 82.21% { opacity: 1; transform: translateY(0); }
+  83.41%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.c9 { animation: cap9 22.88s linear infinite; }
+@keyframes cap9 {
+  0%, 84.56% { opacity: 0; transform: translateY(8px); }
+  86.36%, 100.00% { opacity: 1; transform: translateY(0); }
+  100.00%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+.bar { animation: bar 22.88s linear infinite; transform-origin: 96px 0; }
+@keyframes bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+</style>
+</body>
+</html>
