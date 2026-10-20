@@ -42,6 +42,21 @@ writes is an optional call log, off unless `REPO_RECON_TELEMETRY` names a file.
   `migration-pilot`, `release-captain` and `review-bot` (their original READMEs are in
   [docs/](docs)).
 
+## Screenshots
+
+![Six tools, on a repository it has never seen](docs/screenshots/01-six-tools.png)
+
+All six tools on one page. Every answer arrives through a real `tools/call` over
+JSON-RPC: the page is an MCP client, and the server it drives writes nothing and
+executes nothing.
+
+![The read console](docs/screenshots/02-console.png)
+
+What the server read, how much of the call graph resolved, and how many findings it
+retracted. The two numbers worth reading first: 93.7% of in-scope calls bound to a
+definition, and of 1,099 proposed findings 1,092 did not survive being tested against
+the file's full context. A retracted finding is not a finding.
+
 ## Sample input / output
 
 A `tools/call` over stdio, as an MCP client sends it, on a seven-line file:
@@ -144,22 +159,22 @@ the same checks over four functions written to exercise them:
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
-verdict: warn over 40 commits
-  measured at 8ae90a495841
-  pass  source changes without tests: 0 of 26 source-changing commits changed no test file
-  warn  riskiest commit: 55.5 against a median of 31.9 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
-  pass  areas touched: 5 top-level areas: (root), .github, docs, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 2620 lines (20x the 131-line median)
+verdict: warn over 51 commits
+  measured at 3e4fc4b19454
+  pass  source changes without tests: 1 of 31 source-changing commits changed no test file
+  warn  riskiest commit: 55.7 against a median of 31.7 for this release (1.8x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+  warn  areas touched: 7 top-level areas: (root), .github, docs, observability, scripts, src, tests
+  warn  commits far above this repo's median: 1 commit(s) over 2460 lines (20x the 123-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 131 lines across 4 files
-   55.5  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.5
-   54.6  f21541b7  Four readers for an unfamiliar codebase, beh
-         files 25.0, spread 20.0, volume 9.6
-   54.4  0e0a8d97  A commit message that adds a commit, a 30 KB
-         files 25.0, spread 20.0, volume 9.4
+a normal commit here is 123 lines across 4 files
+   55.7  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.7
+   54.7  f21541b7  Four readers for an unfamiliar codebase, beh
+         files 25.0, spread 20.0, volume 9.7
+   54.5  0e0a8d97  A commit message that adds a commit, a 30 KB
+         files 25.0, spread 20.0, volume 9.5
 ```
 
 ## Results
