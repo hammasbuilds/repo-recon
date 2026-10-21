@@ -115,12 +115,13 @@ beside the score so it can be checked.*
 
 ### How it works, in motion
 
-All six tools as isometric animations, plus two architecture views. A **flow** follows one call from its
-arguments to its answer; an **architecture** view shows the layers of the package and the path a call takes
-through them, down to how a single call site in a file becomes an edge in the graph. Each is one
-self-contained HTML file.
+All six tools, twice over. A **flow** follows one call from its arguments to its answer. An **architecture**
+view shows the four layers of the package and lights up the modules that tool actually walks - `map_repo`
+stops at the report, while `review_diff` carries on into verify and throws most of its own findings away.
+Two more go further down: the repository as a whole, and a single call site becoming an edge in the graph.
+Each is one self-contained HTML file with a poster and a clip beside it.
 
-All 8 are in [`docs/isometric/`](docs/isometric/) — [start at the index](docs/isometric/index.html). 2
+All 14 are in [`docs/isometric/`](docs/isometric/) — [start at the index](docs/isometric/index.html). 8
 architecture, 6 flow.
 
 ![repo-recon](docs/isometric/scenes/arch-reporecon.gif)
@@ -134,6 +135,12 @@ proposed and then retracted.* · [open the animation](docs/isometric/scenes/arch
 scope, bound, and followed one hop through a factory - ending at the two denominators, 1,168 in-scope calls
 and 4,011 of any kind.* · [open the animation](docs/isometric/scenes/arch-reporecon-resolve.html) ·
 [mp4](docs/isometric/scenes/arch-reporecon-resolve.mp4)
+
+![review_diff](docs/isometric/scenes/arch-reporecon-review-diff.png)
+*The same four layers, for one tool: `review_diff` is the only one that reaches `verify`, which is where
+most of what the checks proposed is thrown away.* · [open the
+animation](docs/isometric/scenes/arch-reporecon-review-diff.html) ·
+[mp4](docs/isometric/scenes/arch-reporecon-review-diff.mp4)
 
 ![review_diff](docs/isometric/scenes/flow-reporecon-review-diff.png)
 *The flow view of the tool the repository is really about: 7 findings proposed, 4 confirmed, 3 retracted,
