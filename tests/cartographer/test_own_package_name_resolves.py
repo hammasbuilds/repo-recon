@@ -42,8 +42,7 @@ def _graph(tmp_path: Path, files: dict[str, str]):
 
 
 def _edges(graph) -> set[tuple[str, str]]:
-    return {(edge.caller, edge.callee)
-            for edges in graph.callers_of.values() for edge in edges}
+    return {(edge.caller, edge.callee) for edges in graph.callers_of.values() for edge in edges}
 
 
 TREE = {
@@ -62,15 +61,19 @@ TREE = {
 
 
 def test_a_call_through_the_projects_own_package_name_resolves(tmp_path: Path):
-    graph = _graph(tmp_path, TREE | {
-        "tests/test_a.py": """
+    graph = _graph(
+        tmp_path,
+        TREE
+        | {
+            "tests/test_a.py": """
             import mypkg
 
 
             def test_get():
                 mypkg.get("/")
         """,
-    })
+        },
+    )
     assert ("tests.test_a.test_get", "mypkg.api.get") in _edges(graph)
 
 
@@ -80,8 +83,11 @@ def test_a_deep_from_import_does_not_rebind_the_package_name(tmp_path: Path):
     Both statements are present and in the order they appear in the real file, because
     the bug was an overwrite - with only the `import mypkg` line the old code passed.
     """
-    graph = _graph(tmp_path, TREE | {
-        "tests/test_a.py": """
+    graph = _graph(
+        tmp_path,
+        TREE
+        | {
+            "tests/test_a.py": """
             import mypkg
             from mypkg.deep.pool import PoolManager
 
@@ -90,7 +96,8 @@ def test_a_deep_from_import_does_not_rebind_the_package_name(tmp_path: Path):
                 PoolManager()
                 mypkg.get("/")
         """,
-    })
+        },
+    )
     edges = _edges(graph)
     assert ("tests.test_a.test_get", "mypkg.api.get") in edges
     # And the `from` import still binds what it really does bind.
@@ -105,8 +112,11 @@ def test_a_from_import_alone_binds_no_package_name(tmp_path: Path):
     invent an edge for it. A test that only checks the first direction would pass just
     as well on code that binds every head name it ever sees.
     """
-    graph = _graph(tmp_path, TREE | {
-        "tests/test_a.py": """
+    graph = _graph(
+        tmp_path,
+        TREE
+        | {
+            "tests/test_a.py": """
             from mypkg.deep.pool import PoolManager
 
 
@@ -114,7 +124,8 @@ def test_a_from_import_alone_binds_no_package_name(tmp_path: Path):
                 PoolManager()
                 mypkg.get("/")
         """,
-    })
+        },
+    )
     edges = _edges(graph)
     assert ("tests.test_a.test_get", "mypkg.deep.pool.PoolManager") in edges
     assert ("tests.test_a.test_get", "mypkg.api.get") not in edges
@@ -123,13 +134,17 @@ def test_a_from_import_alone_binds_no_package_name(tmp_path: Path):
 def test_import_of_a_submodule_still_binds_its_head(tmp_path: Path):
     """`import mypkg.deep.pool` binds `mypkg`, and `mypkg.deep.pool.PoolManager()`
     has to keep working - that form is an `import`, not a `from` import."""
-    graph = _graph(tmp_path, TREE | {
-        "tests/test_a.py": """
+    graph = _graph(
+        tmp_path,
+        TREE
+        | {
+            "tests/test_a.py": """
             import mypkg.deep.pool
 
 
             def test_pool():
                 mypkg.deep.pool.PoolManager()
         """,
-    })
+        },
+    )
     assert ("tests.test_a.test_pool", "mypkg.deep.pool.PoolManager") in _edges(graph)

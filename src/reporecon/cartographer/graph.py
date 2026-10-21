@@ -126,8 +126,7 @@ def _build_import_index(repo: ParsedRepo) -> dict[str, dict[str, str]]:
             # imports submodules directly.
             if not imp.is_relative and not imp.is_from:
                 head = imp.target.split(".")[0]
-                index[mod.module].setdefault(head, imp.target if "." not in imp.target
-                                             else head)
+                index[mod.module].setdefault(head, imp.target if "." not in imp.target else head)
     return index
 
 
@@ -360,8 +359,7 @@ def resolve(repo: ParsedRepo) -> Resolution:
                         target = _follow_reexports(walked, first, imports, by_qualname)
                     if target is None:
                         first = parts[0]
-                        target = _follow_reexports(
-                            imported[head], first, imports, by_qualname)
+                        target = _follow_reexports(imported[head], first, imports, by_qualname)
                     if target is None and head in renamed:
                         # `from pkg import lib as l` then `l.helper()`: the module was
                         # found under its own name, and `first` is already the name the
