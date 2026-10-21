@@ -170,7 +170,7 @@ test re-runs `release_readiness` at that commit to reproduce it. `python demo.py
 ```
 map_repo - what is in here
 --------------------------
-60 modules, 680 symbols, 14,797 lines
+60 modules, 680 symbols, 14,810 lines
 call graph: 1105 of 1179 in-scope calls bound to a definition here (93.7%)
   the same number over EVERY call site, builtins included: 27.4% - which measures nothing
 core modules by PageRank over the import graph:
@@ -215,9 +215,9 @@ the same checks over four functions written to exercise them:
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
-verdict: warn over 56 commits
-  measured at dd02b095ce49
-  pass  source changes without tests: 1 of 31 source-changing commits changed no test file
+verdict: warn over 58 commits
+  measured at 3e550f831a13
+  pass  source changes without tests: 1 of 33 source-changing commits changed no test file
   warn  riskiest commit: 55.6 against a median of 31.9 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   warn  areas touched: 7 top-level areas: (root), .github, docs, observability, scripts, src, tests
   warn  commits far above this repo's median: 3 commit(s) over 2510 lines (20x the 126-line median)
