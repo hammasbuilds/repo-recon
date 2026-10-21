@@ -113,42 +113,6 @@ beside the score so it can be checked.*
 ![Dark](docs/screenshots/14-dark.png)
 *The same page in the dark theme.*
 
-### How it works, in motion
-
-All six tools, twice over. A **flow** follows one call from its arguments to its answer. An **architecture**
-view shows the four layers of the package and lights up the modules that tool actually walks - `map_repo`
-stops at the report, while `review_diff` carries on into verify and throws most of its own findings away.
-Two more go further down: the repository as a whole, and a single call site becoming an edge in the graph.
-Each is one self-contained HTML file with a poster and a clip beside it.
-
-All 14 are in [`docs/isometric/`](docs/isometric/) — [start at the index](docs/isometric/index.html). 8
-architecture, 6 flow.
-
-![repo-recon](docs/isometric/scenes/arch-reporecon.gif)
-*Four layers and ten steps: a path arrives at `mcp_server` and is refused if it escapes the root, every file
-is read as a tree, calls are bound to definitions, both resolution rates are reported, and findings are
-proposed and then retracted.* · [open the animation](docs/isometric/scenes/arch-reporecon.html) ·
-[mp4](docs/isometric/scenes/arch-reporecon.mp4)
-
-![one call site, resolved](docs/isometric/scenes/arch-reporecon-resolve.png)
-*One call site, resolved: symbols, imports and return annotations collected, the call ruled in or out of
-scope, bound, and followed one hop through a factory - ending at the two denominators, 1,168 in-scope calls
-and 4,011 of any kind.* · [open the animation](docs/isometric/scenes/arch-reporecon-resolve.html) ·
-[mp4](docs/isometric/scenes/arch-reporecon-resolve.mp4)
-
-![review_diff](docs/isometric/scenes/arch-reporecon-review-diff.png)
-*The same four layers, for one tool: `review_diff` is the only one that reaches `verify`, which is where
-most of what the checks proposed is thrown away.* · [open the
-animation](docs/isometric/scenes/arch-reporecon-review-diff.html) ·
-[mp4](docs/isometric/scenes/arch-reporecon-review-diff.mp4)
-
-![review_diff](docs/isometric/scenes/flow-reporecon-review-diff.png)
-*The flow view of the tool the repository is really about: 7 findings proposed, 4 confirmed, 3 retracted,
-each retraction carrying the reason it was thrown away.* · [open the
-animation](docs/isometric/scenes/flow-reporecon-review-diff.html) ·
-[mp4](docs/isometric/scenes/flow-reporecon-review-diff.mp4)
-
-
 ## Sample input / output
 
 A `tools/call` over stdio, as an MCP client sends it, on a seven-line file:
