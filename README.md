@@ -31,7 +31,7 @@ writes is an optional call log, off unless `REPO_RECON_TELEMETRY` names a file.
   for the `structuredContent` it returns; the test suite validates every tool's output
   against its schema on every path.
 - `map_repo` returns two call-resolution rates. Over every call site in this repository,
-  **27.3%** bind to a definition here; over the call sites that *could* (excluding builtins
+  **27.4%** bind to a definition here; over the call sites that *could* (excluding builtins
   and methods on third-party objects), **93.7%** do. `repo_resolution_rate`, the second, is
   the one to read.
 - `check_modernisation` reports **mechanical** edits (`List[str]` → `list[str]`, same type at
@@ -170,9 +170,9 @@ test re-runs `release_readiness` at that commit to reproduce it. `python demo.py
 ```
 map_repo - what is in here
 --------------------------
-59 modules, 674 symbols, 14,624 lines
-call graph: 1094 of 1168 in-scope calls bound to a definition here (93.7%)
-  the same number over EVERY call site, builtins included: 27.3% - which measures nothing
+60 modules, 680 symbols, 14,797 lines
+call graph: 1105 of 1179 in-scope calls bound to a definition here (93.7%)
+  the same number over EVERY call site, builtins included: 27.4% - which measures nothing
 core modules by PageRank over the import graph:
   reporecon.captain.history
   reporecon.cartographer.parse
@@ -188,7 +188,7 @@ entry points - called by nothing in this repository:
 
 trace_impact - what breaks if this changes
 ------------------------------------------
-reporecon.cartographer.parse.parse_repo is reached by 52 definition(s):
+reporecon.cartographer.parse.parse_repo is reached by 57 definition(s):
   hop_1: reporecon.cartographer.cli._compare_command, reporecon.cartographer.cli._impact_command, reporecon.cartographer.report.build_report, reporecon.mcp_server.ReconServer.trace_impact
   hop_2: demo._run, reporecon.cartographer.cli._map_command, reporecon.mcp_server.ReconServer.map_repo, tests.cartographer.test_annotated_parameters_resolve.test_a_call_on_an_annotated_parameter_resolves
   hop_3: demo.main, tests.test_mcp_server.test_a_bad_integer_argument_says_the_range, tests.test_mcp_server.test_a_link_inside_the_root_does_not_reach_outside_it, tests.test_mcp_server.test_nothing_is_written_while_the_tools_run
@@ -215,22 +215,22 @@ the same checks over four functions written to exercise them:
 
 release_readiness - the whole history audited, not a release decision
 ---------------------------------------------------------------------
-verdict: warn over 51 commits
-  measured at 3e4fc4b19454
+verdict: warn over 56 commits
+  measured at dd02b095ce49
   pass  source changes without tests: 1 of 31 source-changing commits changed no test file
-  warn  riskiest commit: 55.7 against a median of 31.7 for this release (1.8x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
+  warn  riskiest commit: 55.6 against a median of 31.9 for this release (1.7x) - 8b659616 agentic-ai-lab: eleven tools, 376 tests, no dependencies and
   warn  areas touched: 7 top-level areas: (root), .github, docs, observability, scripts, src, tests
-  warn  commits far above this repo's median: 1 commit(s) over 2460 lines (20x the 123-line median)
+  warn  commits far above this repo's median: 3 commit(s) over 2510 lines (20x the 126-line median)
 
 riskiest_commits - with the score's components
 ----------------------------------------------
-a normal commit here is 123 lines across 4 files
-   55.7  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
-         files 25.0, spread 20.0, volume 10.7
+a normal commit here is 126 lines across 4 files
+   55.6  8b659616  agentic-ai-lab: eleven tools, 376 tests, no 
+         files 25.0, spread 20.0, volume 10.6
    54.7  f21541b7  Four readers for an unfamiliar codebase, beh
          files 25.0, spread 20.0, volume 9.7
-   54.5  0e0a8d97  A commit message that adds a commit, a 30 KB
-         files 25.0, spread 20.0, volume 9.5
+   54.4  0e0a8d97  A commit message that adds a commit, a 30 KB
+         files 25.0, spread 20.0, volume 9.4
 ```
 
 ## Results
@@ -243,28 +243,41 @@ projects at pinned tags, chosen for what defeats static resolution, and
 ```
   project        modules  symbols     lines    repo     all
   ----------------------------------------------------------
-  attrs               51    1,558    17,569  52.9%  32.0%
-  black              261    2,305   125,828  52.8%  21.0%
-  click               47    1,277    16,373  66.4%  38.3%
-  flask               65    1,498    16,862  30.8%  16.9%
-  httpx               60    1,248    18,011  65.4%  35.8%
+  attrs               51    1,558    17,569  61.2%  37.0%
+  black              261    2,305   125,828  58.9%  23.4%
+  click               47    1,277    16,373  75.3%  43.8%
+  flask               65    1,498    16,862  38.0%  20.9%
+  httpx               60    1,248    18,011  65.8%  36.0%
   jinja               60    1,770    22,532  58.2%  34.7%
-  pydantic           292   10,216   110,092  71.2%  39.8%
-  pytest             256    6,109    92,545  61.6%  39.6%
-  requests            36      753    11,245  35.9%  19.2%
-  rich               190    2,016    38,773  78.5%  53.8%
-  sqlalchemy         687   37,006   576,683  66.3%  47.6%
+  pydantic           292   10,216   110,092  71.7%  40.1%
+  pytest             256    6,109    92,545  61.9%  39.8%
+  requests            36      753    11,245  56.3%  30.2%
+  rich               190    2,016    38,773  78.9%  54.0%
+  sqlalchemy         687   37,006   576,683  66.6%  47.8%
   starlette           67    1,524    17,123  54.3%  35.4%
 
-  median 59.9%, worst 30.8%, best 78.5%
+  median 61.5%, worst 38.0%, best 78.9%
 ```
 
 Plan against the median: on someone else's code the tool binds about three call sites in
-five, and on a decorator-driven framework fewer than one in three. Of the unresolved calls,
-64% are `variable.method` where nothing states the variable's type (the ceiling of AST-only
-resolution), 22% bare names, 11% multi-hop attributes and 3% `Class.method` on a class the
+five, and on a decorator-driven framework about two in five. Of the unresolved calls, 63%
+are `variable.method` where nothing states the variable's type (the ceiling of AST-only
+resolution), 23% bare names, 10% multi-hop attributes and 3% `Class.method` on a class the
 project owns. Following return annotations (`app = make_app()` where `make_app() -> App`)
 resolves `app.route` to `App.route`.
+
+Two of those numbers moved recently, and it is worth saying which kind of project they
+moved for. A library's own test suite is usually written `import requests` at the top and
+`requests.get(...)` throughout - a call into the repository, one re-export hop from the
+definition. A single `from requests.packages.urllib3.poolmanager import PoolManager`
+further down the same file used to rebind the name `requests` to that submodule for the
+rest of the file, and every `requests.get()` below it resolved to nothing. A `from x.y
+import z` statement binds `z` and says nothing about what `x` means. Fixing that, and
+walking a dotted call along the module path as far as the modules really go, took requests
+from 35.9% to 56.3%, click from 66.4% to 75.3%, attrs from 52.9% to 61.2% and flask from
+30.8% to 38.0%. The median moved 59.9% to 61.5%, because the projects sitting at the
+median do not import themselves by name: a large fix for one shape of codebase and no fix
+at all for another.
 
 ## Tech stack
 

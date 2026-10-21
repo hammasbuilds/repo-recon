@@ -92,6 +92,14 @@ class ImportEdge:
     #: `helper`, and a resolver needs both: the first to match what the call site wrote,
     #: the second to find the definition.
     originals: tuple[str, ...] = ()
+    #: True for `from x import y`, False for `import x`. The two bind different things:
+    #: `import requests` binds the name `requests` to that package, while
+    #: `from requests.packages.urllib3.poolmanager import PoolManager` binds only
+    #: `PoolManager` and says nothing about what `requests` means. Telling them apart
+    #: matters because the resolver used to take the head of the dotted target as a
+    #: binding either way, so one deep `from` import redefined `requests` for the whole
+    #: module and every `requests.get()` after it resolved to nothing.
+    is_from: bool = False
 
 
 @dataclass(frozen=True)
@@ -483,6 +491,7 @@ class _Visitor(ast.NodeVisitor):
                 line=node.lineno,
                 is_relative=is_relative,
                 is_internal=is_relative or self._is_internal(target),
+                is_from=True,
             )
         )
         self.generic_visit(node)

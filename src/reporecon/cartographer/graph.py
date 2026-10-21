@@ -116,9 +116,18 @@ def _build_import_index(repo: ParsedRepo) -> dict[str, dict[str, str]]:
                 # for `pkg.helper`, which is not a symbol anywhere.
                 submodule = f"{imp.target}.{original}"
                 index[mod.module][name] = submodule if submodule in modules else imp.target
-            # `import pkg.mod` binds the head name to the dotted path.
-            if not imp.is_relative and "." not in "".join(imp.names):
-                index[mod.module][imp.target.split(".")[0]] = imp.target
+            # `import pkg` and `import pkg.mod` bind the head name. A `from` import
+            # must not: `from requests.packages.urllib3.poolmanager import PoolManager`
+            # binds PoolManager and nothing else, but this took the head of its target
+            # and rebound `requests` to that submodule for the rest of the file. Every
+            # `requests.get()` after such a line then looked for
+            # `requests.packages.urllib3.poolmanager.get`, which is why a project that
+            # imports its own package by name resolved so much worse than one that
+            # imports submodules directly.
+            if not imp.is_relative and not imp.is_from:
+                head = imp.target.split(".")[0]
+                index[mod.module].setdefault(head, imp.target if "." not in imp.target
+                                             else head)
     return index
 
 
@@ -285,6 +294,9 @@ def resolve(repo: ParsedRepo) -> Resolution:
     externals = _external_names(repo)
     by_qualname = {s.qualname: s for s in repo.symbols}
     class_names = {s.qualname for s in repo.symbols if s.kind == "class"}
+    #: Every module this repository has, so a dotted call can be walked along the module
+    #: path as far as the path really goes before the rest is read as a symbol.
+    modules = {m.module for m in repo.modules}
 
     res = Resolution()
 
@@ -333,7 +345,23 @@ def resolve(repo: ParsedRepo) -> Resolution:
                 # Dotted: module.func, or Class.method via an import.
                 first = rest.split(".")[0]
                 if head in imported:
-                    target = _follow_reexports(imported[head], first, imports, by_qualname)
+                    # `import pkg.deep.mod` then `pkg.deep.mod.Thing()`: the name written
+                    # is a module path with the symbol on the end, and taking only the
+                    # first part after the head looks for `pkg.deep`, which is a module
+                    # and not a symbol. Walk as far along the path as the modules of this
+                    # repository actually go, then resolve what is left in that module.
+                    walked, parts = imported[head], rest.split(".")
+                    used = 0
+                    while used < len(parts) - 1 and f"{walked}.{parts[used]}" in modules:
+                        walked = f"{walked}.{parts[used]}"
+                        used += 1
+                    if used:
+                        first = parts[used]
+                        target = _follow_reexports(walked, first, imports, by_qualname)
+                    if target is None:
+                        first = parts[0]
+                        target = _follow_reexports(
+                            imported[head], first, imports, by_qualname)
                     if target is None and head in renamed:
                         # `from pkg import lib as l` then `l.helper()`: the module was
                         # found under its own name, and `first` is already the name the
